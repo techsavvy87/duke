@@ -54,8 +54,9 @@ if (!function_exists('getHolidayPriceAddition')) {
 }
 
 if (!function_exists('getServicePrice')) {
-    function getServicePrice($service, $petSize, $metadata = null) {
-        $base = floatval($service->price ?? 0);
+    function getServicePrice($service, $petSize, $metadata = null, $referenceDate = null) {
+        // Determine which price to use (current or future based on date)
+        $base = getPriceForDate($service, $referenceDate);
         $priceSmall = isset($service->price_small) ? floatval($service->price_small) : null;
         $priceMedium = isset($service->price_medium) ? floatval($service->price_medium) : null;
         $priceLarge = isset($service->price_large) ? floatval($service->price_large) : null;
@@ -170,6 +171,41 @@ if (!function_exists('isBoardingService')) {
     }
 }
 
+if (!function_exists('dedupeBoardingAutoFeeInvoiceItems')) {
+    function dedupeBoardingAutoFeeInvoiceItems($items): array
+    {
+        $dedupeNames = [
+            'late fee',
+            'late checkout daycare fee',
+            'late checkout fee',
+            'flea/tick detection fee',
+        ];
+
+        $normalizedItems = [];
+        $seenNames = [];
+
+        foreach (collect($items ?? [])->values() as $item) {
+            $itemName = trim((string) data_get($item, 'item_name', data_get($item, 'description', '')));
+            $normalizedName = strtolower($itemName);
+            $dedupeKey = in_array($normalizedName, ['late fee', 'late checkout daycare fee', 'late checkout fee'], true)
+                ? 'late fee'
+                : $normalizedName;
+
+            if (in_array($normalizedName, $dedupeNames, true)) {
+                if (in_array($dedupeKey, $seenNames, true)) {
+                    continue;
+                }
+
+                $seenNames[] = $dedupeKey;
+            }
+
+            $normalizedItems[] = $item;
+        }
+
+        return $normalizedItems;
+    }
+}
+
 if (!function_exists('isPackageService')) {
     function isPackageService($service)
     {
@@ -178,42 +214,588 @@ if (!function_exists('isPackageService')) {
     }
 }
 
+if (!function_exists('getBoardingNightCount')) {
+    function getBoardingNightCount($appointment): int
+    {
+        if (empty($appointment?->date) || empty($appointment?->end_date)) {
+            return 0;
+        }
+
+        $checkInDate = \Carbon\Carbon::parse($appointment->date)->startOfDay();
+        $pickupDate = \Carbon\Carbon::parse($appointment->end_date)->startOfDay();
+
+        if ($pickupDate->lte($checkInDate)) {
+            return 0;
+        }
+
+        return $checkInDate->diffInDays($pickupDate);
+    }
+}
+
+if (!function_exists('getBoardingFamilyPetCount')) {
+    function getBoardingFamilyPetCount($appointment, ?int $petCountOverride = null): int
+    {
+        if (!is_null($petCountOverride)) {
+            return max(0, $petCountOverride);
+        }
+
+        $familyPets = collect($appointment->family_pets ?? [])->filter();
+        if ($familyPets->isNotEmpty()) {
+            return $familyPets->count();
+        }
+
+        $metadata = $appointment->metadata ?? [];
+        $familyPetIds = $metadata['family_pet_ids'] ?? ($metadata['family_pets'] ?? ($metadata['pet_ids'] ?? []));
+
+        if (is_string($familyPetIds)) {
+            $familyPetIds = array_filter(array_map('trim', explode(',', $familyPetIds)));
+        }
+
+        if (is_array($familyPetIds) && !empty($familyPetIds)) {
+            return count($familyPetIds);
+        }
+
+        return !empty($appointment?->pet_id) ? 1 : 0;
+    }
+}
+
+if (!function_exists('getBoardingPricingBreakdown')) {
+    function getBoardingPricingBreakdown($appointment, ?int $petCountOverride = null, $service = null): array
+    {
+        // Get the service if not provided
+        if (!$service) {
+            $service = $appointment->service ?? \App\Models\Service::find($appointment->service_id);
+        }
+
+        $nightlyRate = $service ? getPriceForDate($service, $appointment->date) : 45.0;
+        $nights = getBoardingNightCount($appointment);
+        $petCount = getBoardingFamilyPetCount($appointment, $petCountOverride);
+
+        // Calculate per-night boarding subtotal and holiday adjustment.
+        // Holiday fixed price replaces the nightly base for matching nights.
+        $boardingSubtotal = 0;
+        $holidaySurcharge = 0;
+
+        if ($nights > 0) {
+            $currentDate = \Carbon\Carbon::parse($appointment->date)->startOfDay();
+            $pickupDate = \Carbon\Carbon::parse($appointment->end_date)->startOfDay();
+
+            while ($currentDate->lessThan($pickupDate)) {
+                $baseNightlyRate = $service
+                    ? getPriceForDate($service, $currentDate)
+                    : $nightlyRate;
+
+                $boardingSubtotal += round($petCount * $baseNightlyRate, 2);
+
+                $holidayFixedPrice = getHolidayPriceAddition($currentDate);
+                if ($holidayFixedPrice > 0) {
+                    $holidaySurcharge += round($petCount * ($holidayFixedPrice - $baseNightlyRate), 2);
+                }
+
+                $currentDate->addDay();
+            }
+        }
+
+        // Calculate family discount
+        $discountPerNight = match ($petCount) {
+            2 => 10.0,
+            3 => 20.0,
+            default => 0.0,
+        };
+
+        $familyDiscount = round($discountPerNight * $nights, 2);
+
+        return [
+            'nightly_rate' => $nightlyRate,
+            'nights' => $nights,
+            'pet_count' => $petCount,
+            'boarding_subtotal' => $boardingSubtotal,
+            'family_discount_title' => $familyDiscount > 0 ? 'Multi-Pet Discount' : null,
+            'family_discount_amount' => $familyDiscount,
+            'holiday_surcharge_title' => $holidaySurcharge > 0 ? 'Holiday Surcharge' : null,
+            'holiday_surcharge_amount' => $holidaySurcharge,
+            'total' => round(max(0, $boardingSubtotal - $familyDiscount + $holidaySurcharge), 2),
+        ];
+    }
+}
+
+if (!function_exists('boardingValueIsTruthy')) {
+    function boardingValueIsTruthy($value): bool
+    {
+        return $value === true || $value === 'true' || $value === 1 || $value === '1';
+    }
+}
+
+if (!function_exists('getBoardingFleaTickBreakdown')) {
+    function getBoardingFleaTickBreakdown($appointment, ?array $flows = null): array
+    {
+        $pets = collect($appointment->family_pets ?? [])->filter();
+        if ($pets->isEmpty() && $appointment?->pet) {
+            $pets = collect([$appointment->pet]);
+        }
+
+        $decodedFlows = is_array($flows) ? $flows : [];
+        $checkPetFleaTickData = [];
+        if (isset($decodedFlows['check_pet']) && is_array($decodedFlows['check_pet'])) {
+            $checkPetFleaTickData = isset($decodedFlows['check_pet']['flea_tick_data']) && is_array($decodedFlows['check_pet']['flea_tick_data'])
+                ? $decodedFlows['check_pet']['flea_tick_data']
+                : [];
+        }
+        $petSpecific = isset($decodedFlows['pet_specific']) && is_array($decodedFlows['pet_specific'])
+            ? $decodedFlows['pet_specific']
+            : [];
+        $isFamilyAppointment = $pets->count() > 1;
+
+        $checkedPetCount = 0;
+
+        foreach ($pets as $pet) {
+            if (!$pet) {
+                continue;
+            }
+
+            $petIdKey = (string) $pet->id;
+            $petFlows = $petSpecific[$petIdKey] ?? ($petSpecific[$pet->id] ?? []);
+            if (!is_array($petFlows)) {
+                $petFlows = [];
+            }
+
+            $workflowKey = $isFamilyAppointment ? $petIdKey : (string) ($appointment->id ?? '');
+            $fleaTickDetectedValue = $checkPetFleaTickData[$workflowKey] ?? ($checkPetFleaTickData[(int) $workflowKey] ?? null);
+
+            if ($fleaTickDetectedValue === null) {
+                $fleaTickDetectedValue = $petFlows['flea_tick_detected'] ?? ($decodedFlows['flea_tick_detected'] ?? null);
+            }
+
+            // Legacy fallback for historical check-ins that stored a generic flea_tick flag.
+            if ($fleaTickDetectedValue === null) {
+                $fleaTickDetectedValue = $petFlows['flea_tick'] ?? ($decodedFlows['flea_tick'] ?? null);
+            }
+
+            if (boardingValueIsTruthy($fleaTickDetectedValue)) {
+                $checkedPetCount++;
+            }
+        }
+
+        return [
+            'checked_pet_count' => $checkedPetCount,
+            'amount' => round($checkedPetCount * 50, 2),
+        ];
+    }
+}
+
+if (!function_exists('getBoardingAppointmentPetIds')) {
+    function getBoardingAppointmentPetIds($appointment): array
+    {
+        if (!$appointment) {
+            return [];
+        }
+
+        $petIds = collect($appointment->family_pet_ids ?? [])
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn ($id) => $id > 0)
+            ->values();
+
+        if ($petIds->isEmpty() && !empty($appointment->pet_id)) {
+            $petIds = collect([(int) $appointment->pet_id]);
+        }
+
+        return $petIds->all();
+    }
+}
+
+if (!function_exists('getBoardingEffectivePetFlows')) {
+    function getBoardingEffectivePetFlows(array $flows, int $petId): array
+    {
+        $petIdKey = (string) $petId;
+
+        $petSpecific = isset($flows['pet_specific']) && is_array($flows['pet_specific'])
+            ? $flows['pet_specific']
+            : [];
+        $legacyPetsCare = isset($flows['pets_care']) && is_array($flows['pets_care'])
+            ? $flows['pets_care']
+            : [];
+
+        $petFlow = $petSpecific[$petIdKey] ?? ($petSpecific[$petId] ?? []);
+        $legacyPetFlow = $legacyPetsCare[$petIdKey] ?? ($legacyPetsCare[$petId] ?? []);
+
+        $petFlow = is_array($petFlow) ? $petFlow : [];
+        $legacyPetFlow = is_array($legacyPetFlow) ? $legacyPetFlow : [];
+
+        $effectiveFlows = array_merge($flows, $legacyPetFlow, $petFlow);
+        unset($effectiveFlows['pet_specific'], $effectiveFlows['pets_care']);
+
+        return $effectiveFlows;
+    }
+}
+
+if (!function_exists('getPreviousBoardingCheckinMapByPet')) {
+    function getPreviousBoardingCheckinMapByPet($currentAppointment): array
+    {
+        $petIds = getBoardingAppointmentPetIds($currentAppointment);
+        if (empty($petIds) || empty($currentAppointment?->id)) {
+            return [];
+        }
+
+        $query = \App\Models\Appointment::query()
+            ->with('checkin')
+            ->where('id', '!=', $currentAppointment->id)
+            ->whereHas('checkin');
+
+        if (!empty($currentAppointment->date)) {
+            $currentDate = \Carbon\Carbon::parse($currentAppointment->date)->toDateString();
+            $currentAppointmentId = (int) $currentAppointment->id;
+
+            $query->where(function ($dateQuery) use ($currentDate, $currentAppointmentId) {
+                $dateQuery->whereDate('date', '<', $currentDate)
+                    ->orWhere(function ($sameDateQuery) use ($currentDate, $currentAppointmentId) {
+                        $sameDateQuery->whereDate('date', $currentDate)
+                            ->where('id', '<', $currentAppointmentId);
+                    });
+            });
+        } else {
+            $query->where('id', '<', $currentAppointment->id);
+        }
+
+        $candidates = $query
+            ->orderByDesc('date')
+            ->orderByDesc('id')
+            ->limit(250)
+            ->get();
+
+        $previousByPet = [];
+
+        foreach ($candidates as $candidateAppointment) {
+            $candidatePetIds = getBoardingAppointmentPetIds($candidateAppointment);
+            if (empty($candidatePetIds)) {
+                continue;
+            }
+
+            $matchingPetIds = array_values(array_intersect($petIds, $candidatePetIds));
+            if (empty($matchingPetIds)) {
+                continue;
+            }
+
+            $candidateCheckin = $candidateAppointment->checkin;
+            if (!$candidateCheckin) {
+                continue;
+            }
+
+            $candidateFlows = [];
+            if (!empty($candidateCheckin->flows)) {
+                $decodedCandidateFlows = json_decode($candidateCheckin->flows, true);
+                $candidateFlows = is_array($decodedCandidateFlows) ? $decodedCandidateFlows : [];
+            }
+
+            foreach ($matchingPetIds as $petId) {
+                if (isset($previousByPet[$petId])) {
+                    continue;
+                }
+
+                $effectiveFlows = getBoardingEffectivePetFlows($candidateFlows, (int) $petId);
+                $careInstructions = trim((string) ($effectiveFlows['care_notes'] ?? ($effectiveFlows['pet_notes'] ?? ($candidateCheckin->notes ?? ''))));
+
+                $previousByPet[$petId] = [
+                    'appointment_id' => (int) $candidateAppointment->id,
+                    'checkin_id' => (int) $candidateCheckin->id,
+                    'flows' => $effectiveFlows,
+                    'notes' => trim((string) ($candidateCheckin->notes ?? '')),
+                    'care_instructions' => $careInstructions,
+                ];
+            }
+
+            if (count($previousByPet) >= count($petIds)) {
+                break;
+            }
+        }
+
+        return $previousByPet;
+    }
+}
+
+if (!function_exists('applyPreviousStayAutofillToBoardingCheckin')) {
+    function applyPreviousStayAutofillToBoardingCheckin($appointment, ?array $currentFlows = null, ?string $currentNotes = null): array
+    {
+        $flows = is_array($currentFlows) ? $currentFlows : [];
+        $notes = trim((string) ($currentNotes ?? ''));
+        $petIds = getBoardingAppointmentPetIds($appointment);
+
+        if (empty($petIds)) {
+            return [
+                'flows' => $flows,
+                'notes' => $notes,
+            ];
+        }
+
+        $previousByPet = getPreviousBoardingCheckinMapByPet($appointment);
+        if (empty($previousByPet)) {
+            return [
+                'flows' => $flows,
+                'notes' => $notes,
+            ];
+        }
+
+        $petSpecific = isset($flows['pet_specific']) && is_array($flows['pet_specific'])
+            ? $flows['pet_specific']
+            : [];
+
+        $hasMeaningfulRows = function ($rows, array $keys) {
+            if (!is_array($rows) || empty($rows)) {
+                return false;
+            }
+
+            foreach ($rows as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+
+                foreach ($keys as $key) {
+                    $value = $row[$key] ?? null;
+                    if (is_bool($value) && $value) {
+                        return true;
+                    }
+
+                    if (!is_bool($value) && trim((string) $value) !== '') {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        };
+
+        foreach ($petIds as $petId) {
+            if (!isset($previousByPet[$petId])) {
+                continue;
+            }
+
+            $petIdKey = (string) $petId;
+            $currentPetSpecific = $petSpecific[$petIdKey] ?? ($petSpecific[$petId] ?? []);
+            $currentPetSpecific = is_array($currentPetSpecific) ? $currentPetSpecific : [];
+
+            $currentEffectiveFlows = getBoardingEffectivePetFlows($flows, (int) $petId);
+            $previousFlows = $previousByPet[$petId]['flows'] ?? [];
+
+            $currentHasMedicationData =
+                $hasMeaningfulRows($currentEffectiveFlows['meds_list'] ?? [], ['name', 'amount', 'dispense_am', 'dispense_pm', 'dispense_rest', 'dispense_before_bed', 'dispense_prn', 'dispense_custom_time', 'custom_time', 'meal_condition']) ||
+                trim((string) ($currentEffectiveFlows['meds']['name'] ?? '')) !== '' ||
+                trim((string) ($currentEffectiveFlows['meds']['amount'] ?? '')) !== '';
+
+            if (!$currentHasMedicationData) {
+                if (isset($previousFlows['meds_list']) && is_array($previousFlows['meds_list']) && !empty($previousFlows['meds_list'])) {
+                    $currentPetSpecific['meds_list'] = $previousFlows['meds_list'];
+                }
+                if (isset($previousFlows['meds']) && is_array($previousFlows['meds'])) {
+                    $currentPetSpecific['meds'] = $previousFlows['meds'];
+                }
+            }
+
+            $currentHasDryFoodData =
+                $hasMeaningfulRows($currentEffectiveFlows['dry_food_list'] ?? [], ['brand', 'amount', 'dispense_am', 'dispense_pm', 'dispense_lunch']) ||
+                trim((string) ($currentEffectiveFlows['dry_food']['brand'] ?? '')) !== '' ||
+                trim((string) ($currentEffectiveFlows['dry_food']['amount'] ?? '')) !== '';
+
+            if (!$currentHasDryFoodData) {
+                if (isset($previousFlows['dry_food_list']) && is_array($previousFlows['dry_food_list']) && !empty($previousFlows['dry_food_list'])) {
+                    $currentPetSpecific['dry_food_list'] = $previousFlows['dry_food_list'];
+                }
+                if (isset($previousFlows['dry_food']) && is_array($previousFlows['dry_food'])) {
+                    $currentPetSpecific['dry_food'] = $previousFlows['dry_food'];
+                }
+            }
+
+            $currentHasWetFoodData =
+                $hasMeaningfulRows($currentEffectiveFlows['wet_food_list'] ?? [], ['brand', 'amount', 'dispense_am', 'dispense_pm', 'dispense_lunch']) ||
+                trim((string) ($currentEffectiveFlows['wet_food']['brand'] ?? '')) !== '' ||
+                trim((string) ($currentEffectiveFlows['wet_food']['amount'] ?? '')) !== '';
+
+            if (!$currentHasWetFoodData) {
+                if (isset($previousFlows['wet_food_list']) && is_array($previousFlows['wet_food_list']) && !empty($previousFlows['wet_food_list'])) {
+                    $currentPetSpecific['wet_food_list'] = $previousFlows['wet_food_list'];
+                }
+                if (isset($previousFlows['wet_food']) && is_array($previousFlows['wet_food'])) {
+                    $currentPetSpecific['wet_food'] = $previousFlows['wet_food'];
+                }
+            }
+
+            $currentFleaTickPrevention = trim((string) ($currentEffectiveFlows['flea_tick_prevention'] ?? ''));
+            if ($currentFleaTickPrevention === '') {
+                $previousFleaTickPrevention = trim((string) ($previousFlows['flea_tick_prevention'] ?? ''));
+                if ($previousFleaTickPrevention !== '') {
+                    $currentPetSpecific['flea_tick_prevention'] = $previousFleaTickPrevention;
+                }
+
+                $previousFleaTickPreventionType = trim((string) ($previousFlows['flea_tick_prevention_type'] ?? ''));
+                if ($previousFleaTickPreventionType !== '') {
+                    $currentPetSpecific['flea_tick_prevention_type'] = $previousFleaTickPreventionType;
+                }
+            }
+
+            $currentCareNotes = trim((string) ($currentEffectiveFlows['care_notes'] ?? ($currentEffectiveFlows['pet_notes'] ?? '')));
+            $previousCareNotes = trim((string) ($previousByPet[$petId]['care_instructions'] ?? ''));
+            if ($currentCareNotes === '' && $previousCareNotes !== '') {
+                $currentPetSpecific['care_notes'] = $previousCareNotes;
+            }
+
+            $petSpecific[$petIdKey] = $currentPetSpecific;
+        }
+
+        if (!empty($petSpecific)) {
+            $flows['pet_specific'] = $petSpecific;
+        }
+
+        if ($notes === '' && count($petIds) === 1) {
+            $primaryPetId = (int) ($petIds[0] ?? 0);
+            $primaryCareNotes = trim((string) ($previousByPet[$primaryPetId]['care_instructions'] ?? ''));
+            if ($primaryCareNotes !== '') {
+                $notes = $primaryCareNotes;
+            }
+        }
+
+        return [
+            'flows' => $flows,
+            'notes' => $notes,
+        ];
+    }
+}
+
+if (!function_exists('getBoardingLateCheckoutDaycareBreakdown')) {
+    function getBoardingLateCheckoutDaycareBreakdown($appointment, $checkout = null, int $thresholdHours = 1): array
+    {
+        $result = [
+            'scheduled_pickup_at' => null,
+            'actual_checkout_at' => null,
+            'late_seconds' => 0,
+            'late_hours' => 0,
+            'threshold_hours' => $thresholdHours,
+            'daycare_price' => 0,
+            'daycare_duration' => 0,
+            'hourly_rate' => 0,
+            'billable_hours' => 0,
+            'fee' => 0,
+            'should_apply_fee' => false,
+        ];
+
+        if (!$appointment || !isBoardingService($appointment->service ?? null) || ($appointment->status ?? null) !== 'completed' || empty($appointment->end_date) || empty($appointment->end_time)) {
+            return $result;
+        }
+
+        $facility = \App\Models\FacilityAddress::query()->orderBy('id')->first();
+        if (!shouldApplyLateFee($facility, $appointment)) {
+            return $result;
+        }
+
+        $scheduledPickupAt = \Carbon\Carbon::parse($appointment->end_date . ' ' . $appointment->end_time);
+        $result['scheduled_pickup_at'] = $scheduledPickupAt;
+
+        if (!$checkout) {
+            $checkout = \App\Models\Checkout::where('appointment_id', $appointment->id)->first();
+        }
+
+        $checkoutFlows = [];
+        if ($checkout && !empty($checkout->flows)) {
+            if (is_array($checkout->flows)) {
+                $checkoutFlows = $checkout->flows;
+            } else {
+                $decoded = json_decode($checkout->flows, true);
+                $checkoutFlows = is_array($decoded) ? $decoded : [];
+            }
+        }
+
+        $actualCheckoutAt = null;
+        $flowActualCheckoutAt = trim((string) ($checkoutFlows['actual_checkout_at'] ?? ''));
+        $flowActualCheckoutTime = trim((string) ($checkoutFlows['actual_checkout_time'] ?? ''));
+
+        if ($flowActualCheckoutAt !== '') {
+            try {
+                $actualCheckoutAt = \Carbon\Carbon::parse($flowActualCheckoutAt);
+            } catch (\Throwable $e) {
+                $actualCheckoutAt = null;
+            }
+        }
+
+        if (!$actualCheckoutAt && !empty($checkout?->date) && $flowActualCheckoutTime !== '') {
+            try {
+                $actualCheckoutAt = \Carbon\Carbon::parse($checkout->date . ' ' . $flowActualCheckoutTime);
+            } catch (\Throwable $e) {
+                $actualCheckoutAt = null;
+            }
+        }
+
+        if (!$actualCheckoutAt) {
+            $actualCheckoutAt = \Carbon\Carbon::now();
+        }
+
+        $result['actual_checkout_at'] = $actualCheckoutAt;
+
+        $lateSeconds = $scheduledPickupAt->diffInSeconds($actualCheckoutAt, false);
+        if ($lateSeconds <= 0) {
+            return $result;
+        }
+
+        $result['late_seconds'] = $lateSeconds;
+        $lateHours = $lateSeconds / 3600;
+        $result['late_hours'] = round($lateHours, 2);
+
+        if ($lateHours < $thresholdHours) {
+            return $result;
+        }
+
+        $daycareService = \App\Models\Service::query()
+            ->whereRelation('category', 'name', 'like', '%daycare%')
+            ->where('status', 'active')
+            ->orderBy('id')
+            ->first();
+
+        if (!$daycareService) {
+            return $result;
+        }
+
+        $daycarePrice = floatval($daycareService->price ?? $daycareService->price_medium ?? $daycareService->price_small ?? 0);
+        $daycareDuration = floatval($daycareService->duration ?? $daycareService->duration_medium ?? $daycareService->duration_small ?? 0);
+        $result['daycare_price'] = $daycarePrice;
+        $result['daycare_duration'] = $daycareDuration;
+
+        if ($daycarePrice <= 0 || $daycareDuration <= 0) {
+            return $result;
+        }
+
+        $hourlyRate = round($daycarePrice / $daycareDuration, 2);
+        $result['hourly_rate'] = $hourlyRate;
+
+        $billableHours = (int) floor($lateHours);
+        $result['billable_hours'] = $billableHours;
+
+        if ($billableHours <= 0) {
+            return $result;
+        }
+
+        $fee = round($billableHours * $hourlyRate, 2);
+        $result['fee'] = $fee;
+        $result['should_apply_fee'] = $fee > 0;
+
+        return $result;
+    }
+}
+
+if (!function_exists('shouldApplyLateFee')) {
+    function shouldApplyLateFee($facility, $appointment): bool
+    {
+        return (bool) ($facility?->late_fees_enabled ?? true)
+            && (bool) ($appointment?->apply_late_fee ?? true);
+    }
+}
+
 if (!function_exists('getBoardingServicePrice')) {
-    function getBoardingServicePrice($service, $appointment)
+    function getBoardingServicePrice($service, $appointment, $serviceOverride = null)
     {
         if (!isBoardingService($service)) {
             return null;
         }
 
-        $price = floatval($service->price ?? 0);
-        $duration = floatval($service->duration ?? 1);
+        $pricingService = $serviceOverride ?? $service;
+        $pricing = getBoardingPricingBreakdown($appointment, 1, $pricingService);
 
-        if ($price > 0 && $duration > 0) {
-            $pricePerHour = $price / $duration;
-
-            $startDateTime = null;
-            if ($appointment->date && $appointment->start_time) {
-                $startDateTime = \Carbon\Carbon::parse($appointment->date . ' ' . $appointment->start_time);
-            } elseif ($appointment->date) {
-                $startDateTime = \Carbon\Carbon::parse($appointment->date);
-            }
-
-            $endDateTime = null;
-            if ($appointment->end_date && $appointment->end_time) {
-                $endDateTime = \Carbon\Carbon::parse($appointment->end_date . ' ' . $appointment->end_time);
-            } elseif ($appointment->end_date) {
-                $endDateTime = \Carbon\Carbon::parse($appointment->end_date);
-            }
-
-            if ($startDateTime && $endDateTime && $endDateTime->gt($startDateTime)) {
-                $totalHours = $startDateTime->diffInHours($endDateTime);
-                return $pricePerHour * $totalHours;
-            } elseif ($startDateTime) {
-                return $pricePerHour * 24;
-            }
-        }
-
-        return 0;
+        return $pricing['total'];
     }
 }
 
@@ -469,6 +1051,63 @@ if (!function_exists('hasPermission')) {
     }
 }
 
+if (!function_exists('isFacilityOwner')) {
+    /**
+     * Check if the authenticated user is a facility Owner
+     *
+     * @return bool
+     */
+    function isFacilityOwner()
+    {
+        if (!auth()->check()) {
+            return false;
+        }
+
+        return auth()->user()->roles()
+            ->whereRaw('LOWER(title) in (?, ?)', ['owner', 'admin'])
+            ->exists();
+    }
+}
+
+if (!function_exists('canManagePricing')) {
+    /**
+     * Check if the authenticated user can manage service prices
+     * Only facility Owner can perform this action
+     *
+     * @return bool
+     */
+    function canManagePricing()
+    {
+        return isFacilityOwner();
+    }
+}
+
+if (!function_exists('canEditInvoice')) {
+    /**
+     * Check if the authenticated user can edit invoices and line items
+     * Only facility Owner can perform this action
+     *
+     * @return bool
+     */
+    function canEditInvoice()
+    {
+        return isFacilityOwner();
+    }
+}
+
+if (!function_exists('canWithdrawFunds')) {
+    /**
+     * Check if the authenticated user can withdraw funds
+     * Only facility Owner can perform this action
+     *
+     * @return bool
+     */
+    function canWithdrawFunds()
+    {
+        return isFacilityOwner();
+    }
+}
+
 if (!function_exists('getServicePermissionId')) {
     function getServicePermissionId($service)
     {
@@ -498,11 +1137,94 @@ if (!function_exists('getServicePermissionId')) {
     }
 }
 
+if (!function_exists('isAssignmentConflict')) {
+    function isAssignmentConflict($appointment)
+    {
+        if (!$appointment || !is_object($appointment)) {
+            return false;
+        }
+
+        // Safely check if metadata property exists
+        if (!isset($appointment->metadata)) {
+            return false;
+        }
+
+        $metadata = $appointment->metadata;
+        if (!is_array($metadata)) {
+            return false;
+        }
+
+        return isset($metadata['was_allowed_with_conflict']) && $metadata['was_allowed_with_conflict'] === true;
+    }
+}
+
+if (!function_exists('getAssignmentConflictLabel')) {
+    function getAssignmentConflictLabel($appointment, string $fallback = 'Conflict'): string
+    {
+        if (!$appointment || !is_object($appointment) || !isset($appointment->metadata) || !is_array($appointment->metadata)) {
+            return $fallback;
+        }
+
+        $metadata = $appointment->metadata;
+        $warningCodes = $metadata['warning_codes'] ?? [];
+
+        if (is_string($warningCodes) && trim($warningCodes) !== '') {
+            $warningCodes = array_filter(array_map('trim', explode(',', $warningCodes)));
+        }
+
+        $warningCodes = collect(is_array($warningCodes) ? $warningCodes : [])
+            ->map(fn ($code) => strtolower((string) $code))
+            ->unique()
+            ->values();
+
+        $hasCapacity = $warningCodes->contains('capacity_exceeded');
+        $hasSizeRule = $warningCodes->contains('size_sharing');
+
+        if ($hasCapacity && $hasSizeRule) {
+            return 'Over capacity + size-rule warning';
+        }
+
+        if ($hasSizeRule) {
+            return 'Size-rule warning';
+        }
+
+        if ($hasCapacity) {
+            return 'Over capacity';
+        }
+
+        $message = strtolower((string) ($metadata['assignment_conflict_message'] ?? ''));
+        $messageHasSizeRule = str_contains($message, 'size rule warning') || str_contains($message, 'size-rule');
+        $messageHasCapacity = str_contains($message, 'capacity warning') || str_contains($message, 'over capacity');
+
+        if ($messageHasCapacity && $messageHasSizeRule) {
+            return 'Over capacity + size-rule warning';
+        }
+
+        if ($messageHasSizeRule) {
+            return 'Size-rule warning';
+        }
+
+        if ($messageHasCapacity) {
+            return 'Over capacity';
+        }
+
+        $conflictType = strtolower((string) ($metadata['assignment_conflict_type'] ?? ''));
+
+        return match ($conflictType) {
+            'kennel' => 'Assignment warning',
+            'room' => 'Room conflict',
+            'pet_type', 'cat_kennel', 'cat_to_kennel' => 'Size/type warning',
+            default => $fallback,
+        };
+    }
+}
+
 if (!function_exists('appointment_status_label')) {
     function appointment_status_label(?string $status, $service = null): string
     {
         $labels = [
             'checked_in' => 'Scheduled',
+            'wait listed' => 'Wait Listed',
             'in_progress' => ($service && (isBoardingService($service) || isDaycareService($service))) ? 'On Property' : 'In Progress',
             'completed' => 'Completed',
             'finished' => 'Finished',
@@ -517,6 +1239,27 @@ if (!function_exists('appointment_status_label')) {
         }
 
         return $status ? ucfirst(str_replace('_', ' ', $status)) : '—';
+    }
+}
+
+if (!function_exists('appointment_occupying_statuses')) {
+    function appointment_occupying_statuses(): array
+    {
+        return ['checked_in', 'in_progress', 'issue', 'completed'];
+    }
+}
+
+if (!function_exists('appointment_non_occupying_statuses')) {
+    function appointment_non_occupying_statuses(): array
+    {
+        return ['finished', 'cancelled', 'canceled', 'no_show', 'wait listed'];
+    }
+}
+
+if (!function_exists('appointment_counts_as_occupying')) {
+    function appointment_counts_as_occupying(?string $status): bool
+    {
+        return in_array(strtolower(trim((string) $status)), appointment_occupying_statuses(), true);
     }
 }
 
@@ -820,5 +1563,132 @@ if (!function_exists('buildChauffeurPricingData')) {
         }
 
         return $result;
+    }
+}
+
+if (!function_exists('generatePaymentLinkToken')) {
+    function generatePaymentLinkToken() {
+        return bin2hex(random_bytes(32));
+    }
+}
+
+if (!function_exists('createPaymentLink')) {
+    function createPaymentLink($invoice, $appointment, $amount) {
+        $token = generatePaymentLinkToken();
+        $expiresAt = now()->addDays(30);
+
+        $paymentLink = \App\Models\PaymentLink::create([
+            'invoice_id' => $invoice->id,
+            'appointment_id' => $appointment->id,
+            'secure_token' => $token,
+            'amount' => $amount,
+            'currency' => 'usd',
+            'status' => 'pending',
+            'expires_at' => $expiresAt,
+        ]);
+
+        return $paymentLink;
+    }
+}
+
+if (!function_exists('getPaymentLinkUrl')) {
+    function getPaymentLinkUrl($paymentLink) {
+        return route('payment.page', ['token' => $paymentLink->secure_token]);
+    }
+}
+
+if (!function_exists('validatePaymentToken')) {
+    function validatePaymentToken($token) {
+        $paymentLink = \App\Models\PaymentLink::where('secure_token', $token)->first();
+
+        if (!$paymentLink) {
+            return null;
+        }
+
+        if ($paymentLink->isExpired()) {
+            return null;
+        }
+
+        if ($paymentLink->isCompleted()) {
+            return null;
+        }
+
+        return $paymentLink;
+    }
+}
+
+if (!function_exists('createInvoiceCheckoutSession')) {
+    /**
+     * Create a Stripe Checkout Session for an invoice and return the session URL.
+     * This reuses existing payment/customer storage in `payments` table.
+     */
+    function createInvoiceCheckoutSession($invoice, $amount = null)
+    {
+        if (!$invoice) {
+            return null;
+        }
+
+        try {
+            $stripe = new \Stripe\StripeClient(env('STRIPE_SECRET_KEY'));
+
+            $customer = $invoice->customer; // relation on Invoice
+            $stripeCustomerId = null;
+
+            if ($customer) {
+                $payment = \App\Models\Payment::where('user_id', $customer->id)->first();
+                if ($payment && !empty($payment->stripe_customer_id)) {
+                    $stripeCustomerId = $payment->stripe_customer_id;
+                }
+
+                if (!$stripeCustomerId) {
+                    // create a new Stripe customer
+                    $created = $stripe->customers->create([
+                        'name' => trim(($invoice->first_name ?? '') . ' ' . ($invoice->last_name ?? '')),
+                        'email' => $invoice->email,
+                    ]);
+                    $stripeCustomerId = $created->id;
+                    if ($payment) {
+                        $payment->stripe_customer_id = $stripeCustomerId;
+                        $payment->save();
+                    } else {
+                        $payment = new \App\Models\Payment();
+                        $payment->user_id = $customer->id;
+                        $payment->stripe_customer_id = $stripeCustomerId;
+                        $payment->save();
+                    }
+                }
+            }
+
+            $amountFloat = $amount !== null ? $amount : (float) ($invoice->total_amount ?? 0);
+            $amount = (int) round($amountFloat * 100);
+            if ($amount <= 0) {
+                return null;
+            }
+
+            // Build a Checkout Session that will redirect the customer to pay this invoice
+            $session = $stripe->checkout->sessions->create([
+                'payment_method_types' => ['card'],
+                'mode' => 'payment',
+                'customer' => $stripeCustomerId,
+                'line_items' => [[
+                    'price_data' => [
+                        'currency' => ($invoice->currency ?? 'usd'),
+                        'product_data' => ['name' => "Invoice " . ($invoice->invoice_number ?? '')],
+                        'unit_amount' => $amount,
+                    ],
+                    'quantity' => 1,
+                ]],
+                'metadata' => [
+                    'invoice_id' => $invoice->id,
+                ],
+                'success_url' => url('/payment/success?session_id={CHECKOUT_SESSION_ID}'),
+                'cancel_url' => url('/payment/cancel'),
+            ]);
+
+            return $session->url ?? null;
+        } catch (\Exception $e) {
+            \Log::error('Failed to create Checkout Session for invoice', ['invoice_id' => $invoice->id ?? null, 'error' => $e->getMessage()]);
+            return null;
+        }
     }
 }

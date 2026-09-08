@@ -11,14 +11,14 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('holidays', function (Blueprint $table) {
+        Schema::create('kennels', function (Blueprint $table) {
             $table->id();
+            $table->string('img')->nullable();
             $table->string('name');
-            $table->date('date');
-            $table->decimal('fixed_price', 10, 2)->default(0);
-            $table->enum('application_type', ['one_day', 'period_days'])->default('one_day');
-            $table->date('end_date')->nullable();
-            $table->enum('restrict_bookings', ['yes', 'no'])->default('no');
+            $table->string('description')->nullable();
+            $table->integer('capacity');
+            $table->enum('kennel_type', ['Canine','Feline'])->default('Canine');
+            $table->enum('status', ['In Service', 'Out of Service', 'Cleaning'])->default('In Service');
             $table->timestamps();
         });
     }
@@ -28,6 +28,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('holidays');
+        Schema::dropIfExists('kennels');
     }
 };

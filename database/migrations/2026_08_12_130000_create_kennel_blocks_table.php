@@ -11,14 +11,15 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('facility_addresses', function (Blueprint $table) {
+        Schema::create('kennel_blocks', function (Blueprint $table) {
             $table->id();
-            $table->string('address')->nullable();
-            $table->string('city')->nullable();
-            $table->string('state')->nullable();
-            $table->string('zip_code')->nullable();
-            $table->boolean('late_fees_enabled')->default(true);
+            $table->foreignId('kennel_id')->constrained('kennels')->onDelete('cascade');
+            $table->date('blocked_from');
+            $table->date('blocked_to');
+            $table->string('reason')->nullable();
             $table->timestamps();
+
+            $table->index(['kennel_id', 'blocked_from', 'blocked_to']);
         });
     }
 
@@ -27,6 +28,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('facility_addresses');
+        Schema::dropIfExists('kennel_blocks');
     }
 };

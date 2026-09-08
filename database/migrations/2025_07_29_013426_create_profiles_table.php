@@ -19,11 +19,13 @@ return new class extends Migration
             $table->string('last_name');
             $table->string('phone_number_1');
             $table->string('phone_number_2')->nullable();
-            $table->enum('gender', ['male', 'female'])->default('male');
+            $table->string('home_number')->nullable();
+            $table->string('work_number')->nullable();
             $table->string('address')->nullable();
             $table->string('city')->nullable();
             $table->string('state')->nullable();
             $table->string('zip_code')->nullable();
+            $table->string('emergency_contact_info')->nullable();
             $table->timestamps();
         });
     }

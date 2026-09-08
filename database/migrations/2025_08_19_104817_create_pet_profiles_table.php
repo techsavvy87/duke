@@ -17,7 +17,8 @@ return new class extends Migration
             $table->string('pet_img')->nullable();
             $table->string('name');
             $table->enum('sex', ['male', 'female'])->default('male');
-            $table->enum('spay_neuter', ['spayed', 'neutered'])->nullable();
+            $table->enum('spay_neuter', ['spayed', 'neutered', 'intact'])->nullable();
+            $table->enum('type', ['Dog', 'Cat'])->default('Dog');
             $table->date('birthdate')->nullable();
             $table->unsignedTinyInteger('age')->nullable();
             $table->foreignId('breed_id')->nullable()->constrained('breeds')->onDelete('set null');

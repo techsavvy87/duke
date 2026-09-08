@@ -16,15 +16,18 @@ return new class extends Migration
             $table->foreignId('customer_id')->constrained('users')->onDelete('cascade');
             $table->foreignId('pet_id')->constrained('pet_profiles')->onDelete('cascade');
             $table->foreignId('service_id')->constrained('services')->onDelete('cascade');
+            $table->unsignedBigInteger('kennel_id')->nullable();
+            $table->unsignedBigInteger('cat_room_id')->nullable();
             $table->string('additional_service_ids')->nullable();
             $table->foreignId('staff_id')->nullable();
             $table->date('date')->nullable();
             $table->time('start_time')->nullable();
             $table->time('end_time')->nullable();
-            $table->enum('status', ['cancelled', 'no_show', 'checked_in', 'in_progress', 'completed', 'finished', 'issue'])->default('checked_in');
+            $table->enum('status', ['cancelled', 'no_show', 'checked_in', 'in_progress', 'completed', 'finished', 'issue', 'wait listed'])->default('checked_in');
             $table->decimal('estimated_price', 10, 2)->nullable();
             $table->json('metadata')->nullable();
             $table->date('end_date')->nullable();
+            $table->boolean('apply_late_fee')->default(true);
             $table->timestamps();
         });
     }
