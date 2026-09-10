@@ -29,6 +29,34 @@ use App\Http\Controllers\web\HelpController;
 use App\Http\Controllers\web\DiscountController;
 use App\Http\Controllers\web\PetBehaviorController;
 use App\Http\Controllers\web\FacilityAddressController;
+use App\Http\Controllers\web\KennelController;
+use App\Http\Controllers\web\RoomController;
+use App\Http\Controllers\web\PreCheckinController;
+use App\Http\Controllers\web\PaymentController;
+use App\Http\Controllers\web\AdminPaymentController;
+use App\Http\Controllers\web\StripeWebhookController;
+
+Route::controller(PreCheckinController::class)->group(function () {
+    Route::get('/pre-checkin/{token}', 'show')->name('pre-checkin.show');
+    Route::post('/pre-checkin/{token}', 'save')->name('pre-checkin.save');
+});
+
+Route::controller(PaymentController::class)->group(function () {
+    Route::get('/payment/{token}', 'showPaymentPage')->name('payment.page');
+    Route::post('/payment/create-intent', 'createPaymentIntent')->name('payment.create-intent');
+    Route::post('/payment/confirm', 'confirmPayment')->name('payment.confirm');
+});
+
+Route::controller(CustomerController::class)->group(function () {
+    Route::get('/customer-invite/{token}', 'showInviteRegistrationForm')->name('customer-invite.form');
+    Route::post('/customer-invite/{token}', 'submitInviteRegistration')->name('customer-invite.submit');
+    Route::post('/customer-invite/customer-file/process', 'processInviteCustomerFileUpload')->name('process-file-customer-invite');
+    Route::delete('/customer-invite/customer-file/revert', 'revertInviteCustomerFileUpload')->name('revert-file-customer-invite');
+    Route::post('/customer-invite/pet-file/process', 'processInvitePetFileUpload')->name('process-file-pet-invite');
+    Route::delete('/customer-invite/pet-file/revert', 'revertInvitePetFileUpload')->name('revert-file-pet-invite');
+});
+
+Route::post('/webhook/stripe', [StripeWebhookController::class, 'handle'])->name('stripe.webhook')->withoutMiddleware(['csrf']);
 
 Route::controller(AuthController::class)->group(function () {
     Route::get('/login', 'login')->name('login');
@@ -266,6 +294,7 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/appointment/delete', 'delete')->name('delete-appointment')->middleware('ensure.permission:3,can_delete');
         Route::post('/appointment/pending/confirm', 'confirmPending')->name('confirm-pending-appointment')->middleware('ensure.permission:3,can_update');
         Route::post('/appointment/{id}/checkin/flows', 'updateCheckinFlows')->name('update-checkin-flows')->middleware('ensure.permission:3,can_update');
+        Route::post('/appointment/{id}/care-information', 'updateOnPropertyCareInformation')->name('update-on-property-care-information')->middleware('ensure.permission:3,can_update');
         Route::post('/appointment/{id}/checkin/confirm', 'confirmCheckedIn')->name('confirm-checked-in-appointment')->middleware('ensure.permission:3,can_update');
         Route::post('/appointment/{id}/process/flows', 'updateProcessFlows')->name('update-process-flows')->middleware('ensure.permission:3,can_update');
         Route::get('/appointment/{id}/process/flows', 'getProcessFlows')->name('get-process-flows')->middleware('ensure.permission:3,can_read');
@@ -275,16 +304,26 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/appointment/{id}/email/send', 'sendCustomerEmail')->name('send-appointment-customer-email')->middleware('ensure.permission:3,can_update');
         Route::post('/appointment/{id}/notify/send', 'sendCustomerNotification')->name('send-appointment-customer-notification')->middleware('ensure.permission:3,can_update');
         Route::post('/appointment/{id}/completed/confirm', 'confirmCompleted')->name('confirm-completed-appointment')->middleware('ensure.permission:3,can_update');
+        Route::post('/appointment/{id}/late-fee', 'updateLateFeeSetting')->name('update-appointment-late-fee')->middleware('ensure.permission:3,can_update');
         Route::post('/appointment/{id}/status/update', 'updateStatus')->name('update-appointment-status')->middleware('ensure.permission:3,can_update');
+        Route::get('/appointment/{id}/signed-boarding-agreement/pdf', 'exportSignedBoardingAgreementPDF')->name('export-signed-boarding-agreement-pdf')->middleware('ensure.permission:3,can_read');
 
         Route::get('/appointment/customers', 'getCustomers')->name('get-appointment-customers')->middleware('ensure.permission:3,can_read');
         Route::get('/appointment/pets/{customerId}', 'getCustomerPets')->name('get-customer-pets')->middleware('ensure.permission:3,can_read');
         Route::get('/appointment/customer-packages/{customerId}', 'getCustomerPackages')->name('get-appointment-customer-packages')->middleware('ensure.permission:3,can_read');
         Route::get('/appointment/staffs', 'getStaffs')->name('get-appointment-staffs')->middleware('ensure.permission:3,can_read');
         Route::post('/appointment/timeslots', 'getTimeSlots')->name('get-appointment-timeslots')->middleware('ensure.permission:3,can_read');
+        Route::get('/appointment/available-kennels', 'getAvailableKennels')->name('get-appointment-available-kennels')->middleware('ensure.permission:3,can_read');
 
         Route::get('/appointment/view/calendar', 'viewCalendar')->name('view-appointment-calendar')->middleware('ensure.permission:3,can_read');
         Route::post('/appointment/validate', 'getValidationInfo')->name('get-validation-info')->middleware('ensure.permission:3,can_read');
+        Route::post('/appointment/validate-assignment', 'validateAssignment')->name('validate-assignment')->middleware('ensure.permission:3,can_read');
+    });
+
+    Route::controller(AdminPaymentController::class)->group(function () {
+        Route::get('/financials/payments', 'payments')->name('financials.payments');
+        Route::get('/financials/payouts', 'payouts')->name('financials.payouts');
+        Route::post('/financials/payouts/withdraw', 'withdraw')->name('financials.payouts.withdraw')->middleware('ensure.permission:14,can_create');
     });
 
     Route::controller(ArchiveController::class)->group(function () {
@@ -351,5 +390,29 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/pet-behavior/create', 'create')->name('create-behavior')->middleware('ensure.permission:31,can_create');
         Route::post('/pet-behavior/update', 'update')->name('update-behavior')->middleware('ensure.permission:31,can_update');
         Route::post('/pet-behavior/delete', 'delete')->name('delete-behavior')->middleware('ensure.permission:31,can_delete');
+    });
+
+    Route::controller(KennelController::class)->group(function () {
+        Route::get('/kennels', 'listKennels')->name('kennels')->middleware('ensure.permission:27,can_read');
+        Route::get('/kennel/add', 'addKennel')->name('add-kennel')->middleware('ensure.permission:27,can_create');
+        Route::get('/kennel/edit/{id}', 'editKennel')->name('edit-kennel')->middleware('ensure.permission:27,can_update');
+        Route::post('/kennel/create', 'createKennel')->name('create-kennel')->middleware('ensure.permission:27,can_create');
+        Route::post('/kennel/update', 'updateKennel')->name('update-kennel')->middleware('ensure.permission:27,can_update');
+        Route::post('/kennel/delete', 'deleteKennel')->name('delete-kennel')->middleware('ensure.permission:27,can_delete');
+        Route::post('/kennel/file/process', 'processFileUpload')->name('process-file-kennel');
+        Route::delete('/kennel/file/revert', 'revertFileUpload')->name('revert-file-kennel');
+        Route::post('/kennel/block/create', 'createKennelBlock')->name('create-kennel-block')->middleware('ensure.permission:27,can_update');
+        Route::post('/kennel/block/delete', 'deleteKennelBlock')->name('delete-kennel-block')->middleware('ensure.permission:27,can_update');
+    });
+
+    Route::controller(RoomController::class)->group(function () {
+        Route::get('/rooms', 'listRooms')->name('rooms')->middleware('ensure.permission:28,can_read');
+        Route::get('/room/add', 'addRoom')->name('add-room')->middleware('ensure.permission:28,can_create');
+        Route::get('/room/edit/{id}', 'editRoom')->name('edit-room')->middleware('ensure.permission:28,can_update');
+        Route::post('/room/create', 'createRoom')->name('create-room')->middleware('ensure.permission:28,can_create');
+        Route::post('/room/update', 'updateRoom')->name('update-room')->middleware('ensure.permission:28,can_update');
+        Route::post('/room/delete', 'deleteRoom')->name('delete-room')->middleware('ensure.permission:28,can_delete');
+        Route::post('/room/file/process', 'processFileUpload')->name('process-file-room');
+        Route::delete('/room/file/revert', 'revertFileUpload')->name('revert-file-room');
     });
 });

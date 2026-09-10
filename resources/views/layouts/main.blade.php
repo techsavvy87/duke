@@ -80,6 +80,12 @@
                     @if (hasPermission(9, 'can_read'))
                     <a class="sidebar-menu-item" href="{{ route('capacities') }}">Capacities</a>
                     @endif
+                    @if (hasPermission(33, 'can_read'))
+                    <a class="sidebar-menu-item" href="{{ route('kennels') }}">Kennels</a>
+                    @endif
+                    @if (hasPermission(34, 'can_read'))
+                    <a class="sidebar-menu-item" href="{{ route('rooms') }}">Rooms</a>
+                    @endif
                     @if (hasPermission(31, 'can_read'))
                     <a class="sidebar-menu-item" href="{{ route('pet-behaviors') }}">Pet Behaviors</a>
                     @endif
@@ -148,7 +154,7 @@
                 </div>
                 @endif
                 @php
-                  $hasServicePermission = hasPermission(11, 'can_read') || hasPermission(12, 'can_read') || hasPermission(13, 'can_read') || hasPermission(20, 'can_read');
+                  $hasServicePermission = hasPermission(11, 'can_read') || hasPermission(12, 'can_read') || hasPermission(13, 'can_read') || hasPermission(20, 'can_read') || hasPermission(33, 'can_read') || hasPermission(34, 'can_read');
                 @endphp
                 @if ($hasServicePermission)
                 <div class="group collapse">
