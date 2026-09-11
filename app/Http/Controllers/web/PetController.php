@@ -22,6 +22,7 @@ use App\Models\Service;
 use App\Models\PetInitialTemperament;
 use App\Models\Appointment;
 use App\Models\PetBehavior;
+use App\Models\PetVeterinarian;
 
 class PetController extends Controller
 {
@@ -197,27 +198,44 @@ class PetController extends Controller
         $request->validate([
             'pet_name' => 'required|string',
             'sex' => 'required|in:male,female',
+            'type' => 'required|in:Dog,Cat',
+            'birth_date' => 'required|date_format:m/d/Y',
             'breed' => 'required|string',
             'size' => 'required|exists:weight_ranges,id',
             'weight' => 'required|numeric|min:0',
             'color' => 'required|string',
             'coat_type' => 'required|string',
             'owner' => 'required|exists:users,id',
-            'veterinarian_name' => 'required|string',
-            'veterinarian_phone' => 'required|string',
+            'veterinarians' => 'required|array|min:1',
+            'veterinarians.*.name' => 'required|string|max:255',
+            'veterinarians.*.phone' => 'required|string|max:255',
             'temp_file' => 'nullable|string',
             'vaccine_status' => 'required|in:missing,submitted,approved,declined,expired',
+            'spay_neuter' => 'nullable|in:spayed,neutered,intact',
             'rating' => 'nullable|in:green,yellow,red',
             'rating_notes' => 'nullable|string',
         ]);
+
+        $submittedVeterinarians = collect($request->input('veterinarians', []))
+            ->map(function ($veterinarian) {
+                return [
+                    'name' => trim((string) data_get($veterinarian, 'name', '')),
+                    'phone' => trim((string) data_get($veterinarian, 'phone', '')),
+                ];
+            })
+            ->filter(function ($veterinarian) {
+                return $veterinarian['name'] !== '' && $veterinarian['phone'] !== '';
+            })
+            ->values();
 
         // Create pet profile
         $pet = new PetProfile;
         $pet->user_id = $request->owner;
         $pet->name = $request->pet_name;
         $pet->sex = $request->sex;
+        $pet->type = $request->type;
         if ($request->filled('birth_date'))
-            $pet->birthdate = Carbon::parse($request->birth_date);
+            $pet->birthdate = Carbon::createFromFormat('m/d/Y', $request->birth_date)->format('Y-m-d');
         if ($request->filled('age'))
             $pet->age = $request->age;
         $pet->breed_id = $request->breed;
@@ -225,8 +243,9 @@ class PetController extends Controller
         $pet->weight = $request->weight;
         $pet->color_id = $request->color;
         $pet->coat_type_id = $request->coat_type;
-        $pet->veterinarian_name = $request->veterinarian_name;
-        $pet->veterinarian_phone = $request->veterinarian_phone;
+        $primaryVeterinarian = $submittedVeterinarians->first();
+        $pet->veterinarian_name = $primaryVeterinarian['name'] ?? null;
+        $pet->veterinarian_phone = $primaryVeterinarian['phone'] ?? null;
         $pet->notes = $request->notes;
         $pet->vaccine_status = $request->vaccine_status;
         $pet->rating = $request->rating;
@@ -252,6 +271,10 @@ class PetController extends Controller
         }
 
         $pet->save();
+
+        if ($submittedVeterinarians->isNotEmpty()) {
+            $pet->veterinarians()->createMany($submittedVeterinarians->all());
+        }
 
         // Create vaccinations
         $vaccinations = json_decode($request->vaccinations);
@@ -297,7 +320,7 @@ class PetController extends Controller
         $questionnaireId = $request->get('questionnaire_id');
         $target = $request->get('target');
 
-        $pet = PetProfile::findOrFail($id);
+        $pet = PetProfile::with('veterinarians')->findOrFail($id);
         $weightRanges = WeightRange::all();
         // get the selected weight range id based on the pet size
         foreach ($weightRanges as $weightRange) {
@@ -343,6 +366,8 @@ class PetController extends Controller
             'pet_profile_id' => 'required|exists:pet_profiles,id',
             'pet_name' => 'required|string',
             'sex' => 'required|in:male,female',
+            'type' => 'required|in:Dog,Cat',
+            'birth_date' => 'nullable|date_format:m/d/Y',
             'breed' => 'required|string',
             'size' => 'required|exists:weight_ranges,id',
             'weight' => 'required|numeric|min:0',
@@ -351,23 +376,38 @@ class PetController extends Controller
             'pet_behavior_id' => 'nullable|array',
             'pet_behavior_id.*' => 'exists:pet_behaviors,id',
             'owner' => 'required|exists:users,id',
-            'veterinarian_name' => 'required|string',
-            'veterinarian_phone' => 'required|string',
+            'veterinarians' => 'required|array|min:1',
+            'veterinarians.*.name' => 'required|string|max:255',
+            'veterinarians.*.phone' => 'required|string|max:255',
             'img_action' => 'required|in:keep,change,delete',
             'temp_file' => 'nullable|string',
             'current_img' => 'nullable|string',
             'vaccine_status' => 'required|in:missing,submitted,approved,declined,expired',
+            'spay_neuter' => 'nullable|in:spayed,neutered,intact',
             'rating' => 'nullable|in:green,yellow,red',
             'rating_notes' => 'nullable|string',
         ]);
+
+        $submittedVeterinarians = collect($request->input('veterinarians', []))
+            ->map(function ($veterinarian) {
+                return [
+                    'name' => trim((string) data_get($veterinarian, 'name', '')),
+                    'phone' => trim((string) data_get($veterinarian, 'phone', '')),
+                ];
+            })
+            ->filter(function ($veterinarian) {
+                return $veterinarian['name'] !== '' && $veterinarian['phone'] !== '';
+            })
+            ->values();
 
         // Find existing pet profile
         $pet = PetProfile::findOrFail($request->pet_profile_id);
         $pet->user_id = $request->owner;
         $pet->name = $request->pet_name;
         $pet->sex = $request->sex;
+        $pet->type = $request->type;
         if ($request->filled('birth_date'))
-            $pet->birthdate = Carbon::parse($request->birth_date);
+            $pet->birthdate = Carbon::createFromFormat('m/d/Y', $request->birth_date)->format('Y-m-d');
         else
             $pet->birthdate = null;
         if ($request->filled('age'))
@@ -392,8 +432,9 @@ class PetController extends Controller
 
         $pet->pet_behavior_id = $behaviorIds->all();
 
-        $pet->veterinarian_name = $request->veterinarian_name;
-        $pet->veterinarian_phone = $request->veterinarian_phone;
+        $primaryVeterinarian = $submittedVeterinarians->first();
+        $pet->veterinarian_name = $primaryVeterinarian['name'] ?? null;
+        $pet->veterinarian_phone = $primaryVeterinarian['phone'] ?? null;
         $pet->notes = $request->notes;
         $pet->vaccine_status = $request->vaccine_status;
         $pet->rating = $request->rating;
@@ -442,6 +483,11 @@ class PetController extends Controller
         }
 
         $pet->save();
+
+        PetVeterinarian::where('pet_profile_id', $pet->id)->delete();
+        if ($submittedVeterinarians->isNotEmpty()) {
+            $pet->veterinarians()->createMany($submittedVeterinarians->all());
+        }
 
         // save pet vaccinations
         $vaccinations = json_decode($request->vaccinations, true);

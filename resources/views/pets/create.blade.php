@@ -10,6 +10,13 @@
       cursor: pointer;
       font-size: 20px;
     }
+    .select2-container {
+      width: 100% !important;
+    }
+
+    .select2-dropdown {
+      z-index: 9999;
+    }
   </style>
 @endsection
 
@@ -85,12 +92,21 @@
                 <input class="grow focus:outline-0" placeholder="e.g. Fluffy" id="pet_name" name="pet_name" type="text" />
               </label>
             </div>
-            <div class="space-y-2">
-              <label class="fieldset-label" for="sex">Sex*</label>
-              <select class="select w-full" name="sex" id="sex">
-                <option value="male">Male</option>
-                <option value="female">Female</option>
-              </select>
+            <div class="grid grid-cols-1 gap-2 xl:grid-cols-2">
+              <div class="space-y-2">
+                <label class="fieldset-label" for="sex">Sex*</label>
+                <select class="select w-full" name="sex" id="sex">
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                </select>
+              </div>
+              <div class="space-y-2">
+                <label class="fieldset-label" for="type">Type*</label>
+                <select class="select w-full" name="type" id="type">
+                  <option value="Dog">Dog</option>
+                  <option value="Cat">Cat</option>
+                </select>
+              </div>
             </div>
             <div class="space-y-2">
               <label class="fieldset-label" for="spay_neuter">Spay/Neuter</label>
@@ -98,25 +114,14 @@
                 <option value="" selected disabled hidden></option>
                 <option value="spayed">Spayed</option>
                 <option value="neutered">Neutered</option>
+                <option value="intact">Intact</option>
               </select>
             </div>
             <div class="space-y-2">
-              <input type="hidden" id="birth_date" name="birth_date" />
-              <label class="fieldset-label" for="birthdate">Birth Date*</label>
-              <div class="dropdown w-full">
-                <div role="button" class="btn btn-outline border-base-300 flex items-center gap-2" tabindex="0">
-                  <span class="iconify lucide--calendar text-base-content/80 size-3.5"></span>
-                  <p class="text-start" id="button_cally_target">-</p>
-                  <span class="iconify lucide--chevron-down text-base-content/70 size-4"></span>
-                </div>
-                <div class="dropdown-content mt-2" tabindex="0">
-                  <calendar-date class="cally bg-base-100 rounded-box shadow-md transition-all hover:shadow-lg" id="button_cally_element" value="-" >
-                    <span class="iconify lucide--chevron-left" slot="previous"></span>
-                    <span class="iconify lucide--chevron-right" slot="next"></span>
-                    <calendar-month></calendar-month>
-                  </calendar-date>
-                </div>
-              </div>
+              <label class="fieldset-label" for="birth_date">Birth Date*</label>
+              <input class="input w-full" id="birth_date" name="birth_date" type="text" inputmode="numeric"
+                placeholder="MM/DD/YYYY" value="{{ old('birth_date') }}" maxlength="10"
+                pattern="(0[1-9]|1[0-2])/(0[1-9]|[12][0-9]|3[01])/[0-9]{4}" required />
             </div>
             <div class="space-y-2">
               <label class="fieldset-label" for="age">Age</label>
@@ -170,87 +175,42 @@
         </div>
       </div>
     </div>
+    @php
+      $vaccinationTypeOptions = [
+          'Leptospirosis',
+          'Rabies',
+          'FVRCP',
+          'Bordetella',
+          'DHPP',
+          'Annual Exam',
+          'Annual Heartworm',
+          'C5 Canine Vaccine',
+          'Canine Coronavirus (CCoV)',
+          'Canine Distemper',
+          'Canine Hepatitis',
+          'Canine Influenza',
+          'Canine Parvovirus',
+          'Crotalid',
+          'Fecal Test',
+          'Flea Prevention Medication',
+          'Lyme',
+          'Monthly Parasite Prevention',
+      ];
+    @endphp
     <input type="hidden" id="vaccinations" name="vaccinations" />
     <div class="grid grid-cols-1 mt-5 gap-5 xl:grid-cols-5">
       <div class="xl:col-span-3">
         <div class="card bg-base-100 shadow">
           <div class="card-body">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-md font-bold">Vaccinations</span>
+              <button type="button" class="btn btn-primary btn-sm" onclick="addVaccinationRow()">
+                <span class="iconify lucide--plus size-4"></span>
+                Add
+              </button>
+            </div>
             <fieldset class="fieldset bg-base-300 border-base-300 rounded-box border p-4">
-              <legend class="fieldset-legend bg-base-100 px-1.5 pb-0">
-                <span class="text-md font-bold">Vaccinations</span>
-              </legend>
-              <div class="fieldset space-y-2" id="vaccinations_container">
-                <div class="grid grid-cols-1 gap-3 xl:grid-cols-12" id="vaccination_distemper">
-                  <div class="xl:col-span-1 flex items-center justify-end">
-                    <input type="checkbox" class="checkbox checkbox-sm" id="vaccination_check_distemper" onchange="toggleVaccinationFields('distemper')" checked/>
-                  </div>
-                  <div class="xl:col-span-5">
-                    <input class="input w-full" id="vaccination_type_distemper" value="Distemper" type="text" readonly/>
-                  </div>
-                  <div class="xl:col-span-4">
-                    <input class="input w-full" id="vaccination_date_distemper" placeholder="e.g. 2023-01-01" type="date"/>
-                  </div>
-                  <div class="xl:col-span-2">
-                    <input class="input w-full" id="vaccination_months_distemper" placeholder="Months" type="text" oninput="this.value = this.value.replace(/[^0-9]/g, '')"/>
-                  </div>
-                </div>
-                <div class="grid grid-cols-1 gap-3 xl:grid-cols-12" id="vaccination_parvo">
-                  <div class="xl:col-span-1 flex items-center justify-end">
-                    <input type="checkbox" class="checkbox checkbox-sm" id="vaccination_check_parvo" onchange="toggleVaccinationFields('parvo')" checked/>
-                  </div>
-                  <div class="xl:col-span-5">
-                    <input class="input w-full" id="vaccination_type_parvo" value="Parvo" type="text" readonly/>
-                  </div>
-                  <div class="xl:col-span-4">
-                    <input class="input w-full" id="vaccination_date_parvo" placeholder="e.g. 2023-01-01" type="date"/>
-                  </div>
-                  <div class="xl:col-span-2">
-                    <input class="input w-full" id="vaccination_months_parvo" placeholder="Months" type="text" oninput="this.value = this.value.replace(/[^0-9]/g, '')"/>
-                  </div>
-                </div>
-                <div class="grid grid-cols-1 gap-3 xl:grid-cols-12" id="vaccination_leptospirosis">
-                  <div class="xl:col-span-1 flex items-center justify-end">
-                    <input type="checkbox" class="checkbox checkbox-sm" id="vaccination_check_leptospirosis" onchange="toggleVaccinationFields('leptospirosis')" checked/>
-                  </div>
-                  <div class="xl:col-span-5">
-                    <input class="input w-full" id="vaccination_type_leptospirosis" value="Leptospirosis" type="text" readonly/>
-                  </div>
-                  <div class="xl:col-span-4">
-                    <input class="input w-full" id="vaccination_date_leptospirosis" placeholder="e.g. 2023-01-01" type="date"/>
-                  </div>
-                  <div class="xl:col-span-2">
-                    <input class="input w-full" id="vaccination_months_leptospirosis" placeholder="Months" type="text" oninput="this.value = this.value.replace(/[^0-9]/g, '')"/>
-                  </div>
-                </div>
-                <div class="grid grid-cols-1 gap-3 xl:grid-cols-12" id="vaccination_rabies">
-                  <div class="xl:col-span-1 flex items-center justify-end">
-                    <input type="checkbox" class="checkbox checkbox-sm" id="vaccination_check_rabies" onchange="toggleVaccinationFields('rabies')" checked/>
-                  </div>
-                  <div class="xl:col-span-5">
-                    <input class="input w-full" id="vaccination_type_rabies" value="Rabies" type="text" readonly/>
-                  </div>
-                  <div class="xl:col-span-4">
-                    <input class="input w-full" id="vaccination_date_rabies" placeholder="e.g. 2023-01-01" type="date"/>
-                  </div>
-                  <div class="xl:col-span-2">
-                    <input class="input w-full" id="vaccination_months_rabies" placeholder="Months" type="text" oninput="this.value = this.value.replace(/[^0-9]/g, '')"/>
-                  </div>
-                </div>
-                <div class="grid grid-cols-1 gap-3 xl:grid-cols-12" id="vaccination_bordetella">
-                  <div class="xl:col-span-1 flex items-center justify-end">
-                    <input type="checkbox" class="checkbox checkbox-sm" id="vaccination_check_bordetella" onchange="toggleVaccinationFields('bordetella')" checked/>
-                  </div>
-                  <div class="xl:col-span-5">
-                    <input class="input w-full" id="vaccination_type_bordetella" value="Bordetella" type="text" readonly/>
-                  </div>
-                  <div class="xl:col-span-4">
-                    <input class="input w-full" id="vaccination_date_bordetella" placeholder="e.g. 2023-01-01" type="date"/>
-                  </div>
-                  <div class="xl:col-span-2">
-                    <input class="input w-full" id="vaccination_months_bordetella" placeholder="Months" type="text" oninput="this.value = this.value.replace(/[^0-9]/g, '')"/>
-                  </div>
-                </div>
-              </div>
+              <div class="fieldset space-y-2" id="vaccinations_container"></div>
             </fieldset>
           </div>
         </div>
@@ -280,17 +240,14 @@
         </div>
         <div class="card bg-base-100 shadow mt-5">
           <div class="card-body">
-            <div class="card-title">Veterinarian Information</div>
-            <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-2">
-              <div class="space-y-2">
-                <label class="fieldset-label" for="veterinarian_name">Name/Facility*</label>
-                <input class="input w-full" id="veterinarian_name" placeholder="e.g. Animal Hospital" type="text" name="veterinarian_name"/>
-              </div>
-              <div class="space-y-2">
-                <label class="fieldset-label" for="veterinarian_phone">Phone*</label>
-                <input class="input w-full" id="veterinarian_phone" placeholder="e.g. (123) 456-7890" type="text" name="veterinarian_phone" oninput="formatPhoneNumber(this)"/>
-              </div>
+            <div class="card-title flex items-center justify-between">
+              <span>Veterinarian Information</span>
+              <button type="button" class="btn btn-primary btn-sm" onclick="addVeterinarianRow()">
+                <span class="iconify lucide--plus size-4"></span>
+                Add Veterinarian
+              </button>
             </div>
+            <div class="mt-2 space-y-3" id="veterinarians_container"></div>
           </div>
         </div>
       </div>
@@ -318,13 +275,186 @@
   <script src="{{ asset('src/libs/select2/select2.min.js') }}"></script>
 
   <script>
-    document.getElementById("button_cally_element")?.addEventListener("change", (e) => {
-      document.getElementById("button_cally_target").innerText = e.target.value;
+    const vaccinationTypeOptions = @json($vaccinationTypeOptions);
+    const vaccinationRemoveActiveColor = '#f31260';
+    const vaccinationRemoveDisabledColor = '#b3b8c3';
+    let vaccinationRowCounter = 0;
+    let veterinarianRowCounter = 0;
 
-      // Calculate age in years
-      const birthDateStr = e.target.value;
-      if (birthDateStr && birthDateStr !== '-') {
-        const birthDate = new Date(birthDateStr);
+    function updateVeterinarianRemoveButtons() {
+      const rows = document.querySelectorAll('#veterinarians_container .veterinarian-row');
+      rows.forEach((row) => {
+        const removeButton = row.querySelector('.btn-remove-veterinarian');
+        if (!removeButton) {
+          return;
+        }
+
+        removeButton.disabled = rows.length <= 1;
+      });
+    }
+
+    function addVeterinarianRow(initialData = {}) {
+      veterinarianRowCounter += 1;
+      const rowId = `veterinarian_row_${veterinarianRowCounter}`;
+      const name = (initialData.name || '').replace(/"/g, '&quot;');
+      const phone = (initialData.phone || '').replace(/"/g, '&quot;');
+
+      const rowHtml = `
+        <div class="veterinarian-row fieldset mt-2 grid grid-cols-1 gap-4 lg:grid-cols-3" id="${rowId}">
+          <div class="space-y-2">
+            <label class="fieldset-label">Name/Facility*</label>
+            <input class="input w-full veterinarian-name" type="text" placeholder="e.g. Animal Hospital" name="veterinarians[${veterinarianRowCounter}][name]" value="${name}" />
+          </div>
+          <div class="space-y-2">
+            <label class="fieldset-label">Phone*</label>
+            <input class="input w-full veterinarian-phone" type="text" placeholder="e.g. (123) 456-7890" name="veterinarians[${veterinarianRowCounter}][phone]" value="${phone}" oninput="formatPhoneNumber(this)" />
+          </div>
+          <div class="flex items-end pb-0.5">
+            <button type="button" class="btn btn-ghost btn-sm p-1 btn-remove-veterinarian" title="Remove" onclick="removeVeterinarianRow('${rowId}')">
+              <span class="iconify lucide--x size-4 text-error"></span>
+            </button>
+          </div>
+        </div>
+      `;
+
+      $('#veterinarians_container').append(rowHtml);
+      updateVeterinarianRemoveButtons();
+    }
+
+    function removeVeterinarianRow(rowId) {
+      const row = document.getElementById(rowId);
+      if (!row) {
+        return;
+      }
+
+      row.remove();
+      updateVeterinarianRemoveButtons();
+    }
+
+    function buildVaccinationOptions(selectedType = '', excludedTypes = []) {
+      const excludedSet = new Set(
+        excludedTypes
+          .map((type) => (type || '').trim())
+          .filter((type) => type !== '' && type !== selectedType)
+      );
+
+      return vaccinationTypeOptions
+        .filter((option) => !excludedSet.has(option) || option === selectedType)
+        .map((option) => {
+          const selected = option === selectedType ? 'selected' : '';
+          return `<option value="${option}" ${selected}>${option}</option>`;
+        })
+        .join('');
+    }
+
+    function bindVaccinationSelectChangeHandler() {
+      $('#vaccinations_container .vaccination-type-select')
+        .off('change.uniqueVaccination')
+        .on('change.uniqueVaccination', function() {
+          $(this).select2('close');
+          refreshVaccinationDropdowns();
+        });
+    }
+
+    function refreshVaccinationDropdowns() {
+      const rows = [];
+      $('#vaccinations_container .vaccination-row').each(function() {
+        rows.push({
+          rowId: $(this).attr('id'),
+          selectedType: (($(this).find('.vaccination-type-select').val() || '') + '').trim(),
+        });
+      });
+
+      rows.forEach((row) => {
+        const excludedTypes = rows
+          .filter((item) => item.rowId !== row.rowId)
+          .map((item) => item.selectedType)
+          .filter((type) => type !== '');
+
+        const $row = $('#' + row.rowId);
+        const $select = $row.find('.vaccination-type-select');
+
+        if ($select.hasClass('select2-hidden-accessible')) {
+          $select.select2('destroy');
+        }
+
+        $select.html(`<option value=""></option>${buildVaccinationOptions(row.selectedType, excludedTypes)}`);
+        $select.val(row.selectedType);
+        initVaccinationRowSelect2($row);
+      });
+
+      bindVaccinationSelectChangeHandler();
+    }
+
+    function initVaccinationRowSelect2(row) {
+      row.find('.vaccination-type-select').select2({
+        placeholder: 'Select vaccination',
+        allowClear: true,
+        width: '100%',
+        dropdownParent: row.closest('.card-body')
+      });
+    }
+
+    function addVaccinationRow(vaccination = {}) {
+      vaccinationRowCounter += 1;
+      const rowId = `vaccination_row_${vaccinationRowCounter}`;
+      const selectedType = vaccination.type || '';
+      const date = vaccination.date || '';
+      const months = vaccination.months || '';
+
+      const rowHtml = `
+        <div class="grid grid-cols-1 gap-3 xl:grid-cols-12 vaccination-row" id="${rowId}">
+          <input type="hidden" class="vaccination-id" value="">
+          <div class="xl:col-span-5">
+            <select class="select w-full vaccination-type-select">
+              <option value=""></option>
+              ${buildVaccinationOptions(selectedType)}
+            </select>
+          </div>
+          <div class="xl:col-span-4">
+            <input class="input w-full vaccination-date" placeholder="e.g. 2023-01-01" type="date" value="${date}" />
+          </div>
+          <div class="xl:col-span-2">
+            <input class="input w-full vaccination-months" placeholder="Months" type="text" value="${months}" oninput="this.value = this.value.replace(/[^0-9]/g, '')" />
+          </div>
+          <div class="xl:col-span-1 flex items-center justify-end gap-1">
+            <button type="button" class="btn btn-ghost btn-sm p-1 btn-remove-vaccination" title="Remove vaccination" onclick="removeVaccinationRow(this)">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#f31260" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-minus-icon lucide-minus"><path d="M5 12h14"/></svg>
+            </button>
+          </div>
+        </div>
+      `;
+
+      const $row = $(rowHtml);
+      $('#vaccinations_container').append($row);
+      initVaccinationRowSelect2($row);
+      updateVaccinationRemoveButtons();
+      refreshVaccinationDropdowns();
+    }
+
+    function removeVaccinationRow(button) {
+      const $row = $(button).closest('.vaccination-row');
+      const $select = $row.find('.vaccination-type-select');
+      if ($select.hasClass('select2-hidden-accessible')) {
+        $select.select2('destroy');
+      }
+      $row.remove();
+      updateVaccinationRemoveButtons();
+      refreshVaccinationDropdowns();
+    }
+
+    function updateVaccinationRemoveButtons() {
+      $('#vaccinations_container .btn-remove-vaccination').each(function() {
+        $(this)
+          .find('svg')
+          .attr('stroke', vaccinationRemoveActiveColor);
+      });
+    }
+
+    document.getElementById("birth_date")?.addEventListener("change", (e) => {
+      const parts = e.target.value.split('/');
+      if (parts.length === 3) {
+        const birthDate = new Date(Number(parts[2]), Number(parts[0]) - 1, Number(parts[1]));
         const today = new Date();
         let age = today.getFullYear() - birthDate.getFullYear();
         const m = today.getMonth() - birthDate.getMonth();
@@ -596,24 +726,15 @@
           $('#size').val(selectedSize).trigger('change');
         }
       });
+
+      addVaccinationRow();
+      addVeterinarianRow();
     });
-
-    function toggleVaccinationFields(vaccination) {
-      const isChecked = $(`#vaccination_check_${vaccination}`).is(':checked');
-      $(`#vaccination_type_${vaccination}`).prop('disabled', !isChecked);
-      $(`#vaccination_date_${vaccination}`).prop('disabled', !isChecked);
-      $(`#vaccination_months_${vaccination}`).prop('disabled', !isChecked);
-
-      if (!isChecked) {
-        $(`#vaccination_date_${vaccination}`).val('');
-        $(`#vaccination_months_${vaccination}`).val('');
-      }
-    }
 
     function savePet() {
       const petName = $('#pet_name').val();
       const sex = $('#sex').val();
-      const birthDate = $('#button_cally_target').text();
+      const birthDate = $('#birth_date').val().trim();
       const age = $('#age').val();
       const breed = $('#breed').val();
       const size = $('#size').val();
@@ -621,61 +742,87 @@
       const color = $('#color').val();
       const coatType = $('#coat_type').val();
       const owner = $('#owner').val();
-      const veterinarianName = $('#veterinarian_name').val();
-      const veterinarianPhone = $('#veterinarian_phone').val();
 
-      if (!petName || !sex || !breed || !weight || !color || !coatType || !owner || !veterinarianName || !veterinarianPhone) {
+      if (!petName || !sex || !breed || !weight || !color || !coatType || !owner) {
         $('#alert_message').text('Please fill in all required fields.');
         alert_modal.showModal();
         return;
       }
 
-      // validate if birthDate and age is empty at the same time
-      if (birthDate === '-') {
+      const veterinarianRows = $('#veterinarians_container .veterinarian-row');
+      if (!veterinarianRows.length) {
+        $('#alert_message').text('Please add at least one veterinarian.');
+        alert_modal.showModal();
+        return;
+      }
+
+      let hasInvalidVeterinarian = false;
+      veterinarianRows.each(function() {
+        const name = ($(this).find('.veterinarian-name').val() || '').trim();
+        const phone = ($(this).find('.veterinarian-phone').val() || '').trim();
+        if (!name || !phone) {
+          hasInvalidVeterinarian = true;
+          return false;
+        }
+      });
+
+      if (hasInvalidVeterinarian) {
+        $('#alert_message').text('Please complete all veterinarian name and phone fields.');
+        alert_modal.showModal();
+        return;
+      }
+
+      if (!birthDate) {
         $('#alert_message').text('Please fill in Birth Date field.');
         alert_modal.showModal();
         return;
       }
 
-      // validate if there is an empty vaccination name or empty vaccination date
-      var hasEmptyVaccination = false;
-      $('#vaccinations_container').children('div').each(function() {
-        const checked = $(this).find('input[id^="vaccination_check_"]').is(':checked');
-        if (checked) {
-          const date = $(this).find('input[id^="vaccination_date_"]').val();
-          const months = $(this).find('input[id^="vaccination_months_"]').val();
-          if (!date || !months) {
-            hasEmptyVaccination = true;
-            return false; // Stop further iteration
-          }
-        }
-      });
-
-      if (hasEmptyVaccination) {
-        $('#alert_message').text('Please fill in all vaccination fields or uncheck empty ones.');
+      if (!isValidBirthDate(birthDate)) {
+        $('#alert_message').text('Birth Date must be a valid date in MM/DD/YYYY format.');
         alert_modal.showModal();
         return;
       }
 
-      // collecting the vaccinations
-      var vaccinationData = [];
-      $('#vaccinations_container').children('div').each(function() {
-        const checked = $(this).find('input[id^="vaccination_check_"]').is(':checked');
-        const type = $(this).find('input[id^="vaccination_type_"]').val();
-        const date = $(this).find('input[id^="vaccination_date_"]').val();
-        const months = $(this).find('input[id^="vaccination_months_"]').val();
+      let hasIncompleteVaccination = false;
+      const vaccinationData = [];
+      $('#vaccinations_container .vaccination-row').each(function() {
+        const type = ($(this).find('.vaccination-type-select').val() || '').trim();
+        const date = ($(this).find('.vaccination-date').val() || '').trim();
+        const months = ($(this).find('.vaccination-months').val() || '').trim();
+        const hasAnyField = Boolean(type || date || months);
 
-        if (checked && type && date && months) {
-          vaccinationData.push({ type: type, date: date, months: months });
+        if (!hasAnyField) {
+          return;
         }
-      });
-      $('#vaccinations').val(JSON.stringify(vaccinationData));
 
-      if (birthDate) {
-        $('#birth_date').val(birthDate);
+        if (!type || !date || !months) {
+          hasIncompleteVaccination = true;
+          return false;
+        }
+
+        vaccinationData.push({ type: type, date: date, months: months });
+      });
+
+      if (hasIncompleteVaccination) {
+        $('#alert_message').text('Please complete vaccination name, date, and month for each row or remove it.');
+        alert_modal.showModal();
+        return;
       }
 
+      $('#vaccinations').val(JSON.stringify(vaccinationData));
+
       $('#create_form').submit();
+    }
+
+    function isValidBirthDate(value) {
+      const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value);
+      if (!match) return false;
+
+      const date = new Date(Number(match[3]), Number(match[1]) - 1, Number(match[2]));
+      return date.getFullYear() === Number(match[3])
+        && date.getMonth() === Number(match[1]) - 1
+        && date.getDate() === Number(match[2]);
     }
   </script>
 @endsection
