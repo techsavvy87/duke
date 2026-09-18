@@ -72,6 +72,8 @@
               <th>Category</th>
               <th style="text-align:center">Level</th>
               <th style="text-align:center">Status</th>
+              <th>Future Price</th>
+              <th>Effective Date</th>
               <th style="text-align:center">Action</th>
             </tr>
           </thead>
@@ -90,7 +92,7 @@
               </td>
               <td>{{ $service->name }}</td>
               <td>
-                @if($service->price_small || $service->price_medium || $service->price_large || $service->price_xlarge)
+                @if(isGroomingService($service) && ($service->price_small || $service->price_medium || $service->price_large || $service->price_xlarge))
                   —
                 @else
                   @if($service->price)
@@ -101,7 +103,7 @@
                 @endif
               </td>
               <td>
-                @if($service->duration_small || $service->duration_medium || $service->duration_large || $service->duration_xlarge)
+                @if(isGroomingService($service) && ($service->duration_small || $service->duration_medium || $service->duration_large || $service->duration_xlarge))
                   —
                 @else
                   @if($service->duration)
@@ -124,6 +126,20 @@
                   <span class="badge badge-soft badge-success">Active</span>
                 @else
                   <span class="badge badge-soft badge-error">Inactive</span>
+                @endif
+              </td>
+              <td>
+                @if($service->future_price)
+                  ${{ number_format($service->future_price, 2) }}
+                @else
+                  <span class="text-gray-500">—</span>
+                @endif
+              </td>
+              <td>
+                @if($service->future_price_effective_date)
+                  {{ $service->future_price_effective_date->format('m/d/Y') }}
+                @else
+                  <span class="text-gray-500">—</span>
                 @endif
               </td>
               <td style="text-align:center">

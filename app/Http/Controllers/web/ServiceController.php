@@ -172,11 +172,17 @@ class ServiceController extends Controller
                 $service->duration = $request->duration;
             }
         } else if (isDaycareService($service)) {
-            $service->price_small = $request->price_half_daycare;
-            $service->price_medium = $request->price_full_daycare;
+            $daycarePrice = $request->input('price_daycare');
+            $daycareDuration = $request->input('duration_daycare');
 
-            $service->duration_small = $request->duration_half_daycare;
-            $service->duration_medium = $request->duration_full_daycare;
+            $service->price = $daycarePrice;
+            $service->duration = $daycareDuration;
+
+            // Mirror daycare values to size-based columns for backward compatibility in existing flows.
+            $service->price_small = $daycarePrice;
+            $service->price_medium = $daycarePrice;
+            $service->duration_small = $daycareDuration;
+            $service->duration_medium = $daycareDuration;
         } else if (isPrivateTrainingService($service)) {
             $service->price_small = $request->price_half_training;
             $service->price_medium = $request->price_one_training;
@@ -234,7 +240,12 @@ class ServiceController extends Controller
 
     public function updateService(Request $request)
     {
-        $request->validate([
+        $request->merge([
+            'enable_future_price' => $request->boolean('enable_future_price'),
+        ]);
+
+        // Build validation rules based on whether future pricing is enabled
+        $validationRules = [
             'service_id' => 'required|exists:services,id',
             'service_name' => 'required|string|max:255',
             'description' => 'nullable|string',
@@ -243,7 +254,18 @@ class ServiceController extends Controller
             'avatar_action' => 'required|in:keep,change,delete',
             'temp_file' => 'nullable|string',
             'current_avatar' => 'nullable|string',
-        ]);
+            'enable_future_price' => 'nullable|boolean',
+            'future_price' => 'nullable|numeric|min:0',
+            'future_price_effective_date' => 'nullable|date|after:today',
+        ];
+
+        // If future pricing is enabled, require both fields
+        if ($request->boolean('enable_future_price')) {
+            $validationRules['future_price'] = 'required|numeric|min:0';
+            $validationRules['future_price_effective_date'] = 'required|date|after:today';
+        }
+
+        $request->validate($validationRules);
 
         $categoryId = $request->category;
         $category = ServiceCategory::find($categoryId);
@@ -287,11 +309,17 @@ class ServiceController extends Controller
                 $service->duration = $request->duration;
             }
         } else if (isDaycareService($service)) {
-            $service->price_small = $request->price_half_daycare;
-            $service->price_medium = $request->price_full_daycare;
+            $daycarePrice = $request->input('price_daycare');
+            $daycareDuration = $request->input('duration_daycare');
 
-            $service->duration_small = $request->duration_half_daycare;
-            $service->duration_medium = $request->duration_full_daycare;
+            $service->price = $daycarePrice;
+            $service->duration = $daycareDuration;
+
+            // Mirror daycare values to size-based columns for backward compatibility in existing flows.
+            $service->price_small = $daycarePrice;
+            $service->price_medium = $daycarePrice;
+            $service->duration_small = $daycareDuration;
+            $service->duration_medium = $daycareDuration;
         } else if (isPrivateTrainingService($service)) {
             $service->price_small = $request->price_half_training;
             $service->price_medium = $request->price_one_training;
@@ -304,6 +332,15 @@ class ServiceController extends Controller
             $service->duration = $request->duration;
         } else if (isChauffeurService($service)) {
             $service->price_per_mile = $request->price_per_mile;
+        }
+
+        // Set future price fields - only if enabled, otherwise clear them
+        if ($request->boolean('enable_future_price')) {
+            $service->future_price = $request->future_price;
+            $service->future_price_effective_date = $request->future_price_effective_date;
+        } else {
+            $service->future_price = null;
+            $service->future_price_effective_date = null;
         }
 
         if ($request->icon_action === 'delete') {
