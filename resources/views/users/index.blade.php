@@ -44,6 +44,7 @@
               <th>Phone 2</th>
               <th>Verified</th>
               <th>Status</th>
+              <th>Block</th>
               <th>Action</th>
             </tr>
           </thead>
@@ -60,7 +61,6 @@
                   @endif
                   <div>
                     <p class="font-medium">{{ $user->profile ? $user->profile->first_name . ' ' . $user->profile->last_name : ''   }}</p>
-                    <p class="text-base-content/60 text-xs capitalize">{{ $user->profile ? $user->profile->gender : '' }}</p>
                   </div>
                 </div>
               </td>
@@ -81,6 +81,16 @@
                 @else
                 <span class="iconify lucide--badge-x text-error size-4.5"></span>
                 @endif
+              </td>
+              <td>
+                <div class="flex flex-wrap gap-1">
+                  @if ($user->block_reservations)
+                    <div class="badge badge-soft badge-warning badge-sm">Reservations</div>
+                  @endif
+                  @if ($user->block_messages)
+                    <div class="badge badge-soft badge-secondary badge-sm">Messages</div>
+                  @endif
+                </div>
               </td>
               <td>
                 <div class="inline-flex w-fit">

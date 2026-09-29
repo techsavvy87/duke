@@ -26,8 +26,7 @@ class UserController extends Controller
                         $q->where('first_name', 'like', "%{$search}%")
                             ->orWhere('last_name', 'like', "%{$search}%")
                             ->orWhere('phone_number_1', 'like', "%{$search}%")
-                            ->orWhere('phone_number_2', 'like', "%{$search}%")
-                            ->orWhere('gender', 'like', "%{$search}%");
+                            ->orWhere('phone_number_2', 'like', "%{$search}%");
                     });
             })->whereDoesntHave('roles', function ($query) {
                 $query->where('title', 'customer');
@@ -113,6 +112,9 @@ class UserController extends Controller
             $user->email_verified_at = Carbon::now();
         }
         $user->status = $request->boolean('is_active') ?? false;
+        $user->block_reservations = $request->boolean('block_reservations') ?? false;
+        $user->block_messages = $request->boolean('block_messages') ?? false;
+
         $user->save();
 
         // Create profile
@@ -122,11 +124,13 @@ class UserController extends Controller
         $profile->last_name = $request->last_name;
         $profile->phone_number_1 = $request->phone_number_1;
         $profile->phone_number_2 = $request->phone_number_2;
-        $profile->gender = $request->gender;
         $profile->address = $request->street_address;
         $profile->city = $request->city;
         $profile->state = $request->state;
         $profile->zip_code = $request->zip_code;
+        $profile->emergency_contact_info = $request->emergency_contact_info;
+        $profile->home_number = $request->home_number;
+        $profile->work_number = $request->work_number;
 
         if ($request->filled('temp_file')) {
             $tempFile = $request->temp_file;
@@ -199,6 +203,8 @@ class UserController extends Controller
             $user->email_verified_at = null;
         }
         $user->status = $request->boolean('is_active') ?? false;
+        $user->block_reservations = $request->boolean('block_reservations') ?? false;
+        $user->block_messages = $request->boolean('block_messages') ?? false;
 
         $user->save();
 
@@ -213,11 +219,13 @@ class UserController extends Controller
         $profile->last_name = $request->last_name;
         $profile->phone_number_1 = $request->phone_number_1;
         $profile->phone_number_2 = $request->phone_number_2;
-        $profile->gender = $request->gender;
         $profile->address = $request->street_address;
         $profile->city = $request->city;
         $profile->state = $request->state;
         $profile->zip_code = $request->zip_code;
+        $profile->emergency_contact_info = $request->emergency_contact_info;
+        $profile->home_number = $request->home_number;
+        $profile->work_number = $request->work_number;
 
         // Handle avatar based on action
         switch ($request->avatar_action) {
