@@ -508,7 +508,7 @@
                     <div class="min-w-0 space-y-2">
                       <label class="fieldset-label">Weight*</label>
                       <label class="input w-full focus:outline-0">
-                        <input class="grow focus:outline-0 pet-weight" data-pet-index="${index}" placeholder="e.g. 10" type="text" name="pets[${index}][weight]" value="${pet.weight || ''}" oninput="this.value = this.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');" required />
+                        <input class="grow focus:outline-0 pet-weight" data-pet-index="${index}" placeholder="e.g. 10" type="text" name="pets[${index}][weight]" value="${pet.weight || ''}" oninput="this.value = this.value.replace(/[^0-9.]/g, '').replace(/(\\..*)\\./g, '$1');" required />
                         <span class="badge badge-ghost badge-sm">lbs</span>
                       </label>
                     </div>
