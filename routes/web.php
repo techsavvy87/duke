@@ -186,6 +186,7 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/customers', 'listCustomers')->name('customers')->middleware('ensure.permission:1,can_read');
         Route::get('/customer/add', 'addCustomer')->name('add-customer')->middleware('ensure.permission:1,can_create');
         Route::post('/customer/create', 'createCustomer')->name('create-customer')->middleware('ensure.permission:1,can_create');
+        Route::post('/customer/invite', 'sendInvite')->name('send-customer-invite')->middleware('ensure.permission:1,can_create');
         Route::get('/customer/edit/{id}', 'editCustomer')->name('edit-customer')->middleware('ensure.permission:1,can_update');
         Route::get('/customer/{id}/invoices', 'customerInvoices')->name('customer-invoices')->middleware('ensure.permission:1,can_read');
         Route::post('/customer/update', 'updateCustomer')->name('update-customer')->middleware('ensure.permission:1,can_update');

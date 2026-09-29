@@ -26,10 +26,16 @@
           </label>
         </div>
         @if (hasPermission(1, 'can_create'))
-        <a aria-label="Create seller link" class="btn btn-primary btn-sm max-sm:btn-square" href="{{ route('add-customer') }}">
-          <span class="iconify lucide--plus size-4"></span>
-          <span class="hidden sm:inline">New Customer</span>
-        </a>
+        <div class="inline-flex items-center gap-2">
+          <button class="btn btn-outline btn-sm max-sm:btn-square" type="button" onclick="invite_customer_modal.showModal()">
+            <span class="iconify lucide--mail-plus size-4"></span>
+            <span class="hidden sm:inline">Invite Customer</span>
+          </button>
+          <a aria-label="Create seller link" class="btn btn-primary btn-sm max-sm:btn-square" href="{{ route('add-customer') }}">
+            <span class="iconify lucide--plus size-4"></span>
+            <span class="hidden sm:inline">New Customer</span>
+          </a>
+        </div>
         @endif
       </div>
       <div class="mt-4 overflow-auto">
@@ -42,6 +48,7 @@
               <th>Email</th>
               <th>Phone 1</th>
               <th style="text-align: center;">Verified</th>
+              <th>Block</th>
               <th>Pets</th>
               <th>Action</th>
             </tr>
@@ -59,7 +66,6 @@
                   @endif
                   <div>
                     <p class="font-medium">{{ $customer->profile ? $customer->profile->first_name . ' ' . $customer->profile->last_name : ''   }}</p>
-                    <p class="text-base-content/60 text-xs capitalize">{{ $customer->profile ? $customer->profile->gender : '' }}</p>
                   </div>
                 </div>
               </td>
@@ -72,6 +78,17 @@
                 @else
                 <span class="iconify lucide--badge-x text-error size-4.5"></span>
                 @endif
+              </td>
+              <td style="max-width: 180px;">
+                <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+                  @if ($customer->block_reservations)
+                    <div class="badge badge-soft badge-warning badge-sm">Reservations</div>
+                  @endif
+
+                  @if ($customer->block_messages)
+                    <div class="badge badge-soft badge-secondary badge-sm">Messages</div>
+                  @endif
+                </div>
               </td>
               <td style="max-width: 180px;">
                 <div style="display: flex; flex-wrap: wrap; gap: 4px;">
@@ -126,6 +143,36 @@
         <button class="btn btn-error">Delete</button>
       </form>
     </div>
+  </div>
+  <form method="dialog" class="modal-backdrop">
+    <button>close</button>
+  </form>
+</dialog>
+
+<dialog id="invite_customer_modal" class="modal">
+  <div class="modal-box">
+    <div class="flex items-center justify-between text-lg font-medium">
+      Invite Customer
+      <form method="dialog">
+        <button class="btn btn-sm btn-ghost btn-circle" aria-label="Close modal">
+          <span class="iconify lucide--x size-4"></span>
+        </button>
+      </form>
+    </div>
+    <form action="{{ route('send-customer-invite') }}" method="POST" class="mt-3">
+      @csrf
+      <div class="space-y-2">
+        <label class="fieldset-label" for="invite_email">Customer Email</label>
+        <label class="input w-full focus:outline-0">
+          <span class="iconify lucide--mail text-base-content/60 size-4"></span>
+          <input class="grow focus:outline-0" id="invite_email" name="email" placeholder="customer@email.com" type="email" required />
+        </label>
+      </div>
+      <div class="modal-action">
+        <button class="btn btn-ghost" type="button" onclick="invite_customer_modal.close()">Cancel</button>
+        <button class="btn btn-primary" type="submit">Send Invite</button>
+      </div>
+    </form>
   </div>
   <form method="dialog" class="modal-backdrop">
     <button>close</button>
