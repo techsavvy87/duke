@@ -33,8 +33,8 @@
     <div class="card-body p-4">
       <div class="flex items-center justify-between mt-3">
         <form id="search_form" class="w-full" method="GET" action="{{ route('appointments') }}">
-          <div class="grow grid grid-cols-1 gap-2 xl:grid-cols-4">
-            <div class="grid grid-cols-1 gap-2 xl:grid-cols-3 col-span-2">
+          <div class="grow grid grid-cols-1 gap-2 xl:grid-cols-5">
+            <div class="grid grid-cols-1 gap-2 xl:grid-cols-4 col-span-3">
               <input type="text" class="input input-sm w-full" placeholder="Customer/Pet" name="customer" value="{{ $customerPet }}"/>
               <select class="select select-sm w-full" name="service" value="{{ $serviceId }}">
                 <option value="" hidden selected>Choose Service</option>
@@ -46,6 +46,11 @@
                 <option value="" hidden selected>Choose Staff</option>
                 @foreach($staffs as $staff)
                 <option value="{{ $staff->id }}" {{ $staffId == $staff->id ? 'selected' : '' }}>{{ $staff->profile ? $staff->profile->first_name . " " . $staff->profile->last_name : '' }}</option>
+                @endforeach
+              </select>
+              <select class="select select-sm w-full" name="status" value="{{ $status }}">
+                @foreach($statusOptions as $statusValue => $statusLabel)
+                  <option value="{{ $statusValue }}" {{ (string) $status === (string) $statusValue ? 'selected' : '' }}>{{ $statusLabel }}</option>
                 @endforeach
               </select>
             </div>
@@ -74,47 +79,149 @@
               <th>No</th>
               <th>Customer</th>
               <th>Pet</th>
+              <th>Room</th>
+              <th>Kennel</th>
               <th>Service</th>
               <th>Staff</th>
-              <th style="text-align:center">Date</th>
-              <th style="text-align:center">Start Time</th>
-              <th style="text-align:center">End Time</th>
+              <th style="text-align:center">Check-in</th>
+              <th style="text-align:center">Pickup</th>
+              <th style="text-align:center">Stay</th>
+              <th style="text-align:center">Meals</th>
               <th style="text-align:center">Status</th>
               <th style="padding-left: 30px">Action</th>
             </tr>
           </thead>
           <tbody>
             @foreach ($appointments as $appointment)
-            <tr class="hover:bg-base-200/40 cursor-pointer *:text-nowrap">
+            @php
+              // Admin adaptation: only boarding style stays have an end_date; the other services are same day.
+              $hasStay = !empty($appointment->end_date);
+              $checkInDate = \Carbon\Carbon::parse($appointment->date);
+              $pickupDate = \Carbon\Carbon::parse($hasStay ? $appointment->end_date : $appointment->date);
+              $stayDays = $checkInDate->copy()->startOfDay()->diffInDays($pickupDate->copy()->startOfDay()) + 1;
+              $totalMeals = $stayDays * 2;
+              $hasConflict = isAssignmentConflict($appointment);
+              $assignmentDetails = $appointment->family_pet_assignment_details;
+              $uniqueRoomNames = collect($assignmentDetails)
+                ->pluck('room_name')
+                ->map(fn($name) => trim((string) $name))
+                ->filter(fn($name) => $name !== '')
+                ->unique()
+                ->values();
+              $uniqueKennelNames = collect($assignmentDetails)
+                ->pluck('kennel_name')
+                ->map(fn($name) => trim((string) $name))
+                ->filter(fn($name) => $name !== '')
+                ->unique()
+                ->values();
+            @endphp
+            <tr class="hover:bg-base-200/40 cursor-pointer *:text-nowrap {{ $hasConflict ? 'assignment-conflict-row' : '' }}">
               <td>{{ $loop->iteration }}</td>
               <td>{{ $appointment->customer->profile->first_name }} {{ $appointment->customer->profile->last_name }}</td>
               <td>
-                <span>{{ $appointment->pet->name }}</span>
-                @if ($appointment->pet->rating === 'green')
-                <i class="fa-solid fa-star" style="color: lightseagreen"></i>
-                @elseif ($appointment->pet->rating === 'yellow')
-                <i class="fa-solid fa-star" style="color: gold"></i>
-                @elseif ($appointment->pet->rating === 'red')
-                <i class="fa-solid fa-star" style="color: tomato"></i>
-                @endif
+                @php
+                  $displayPets = $appointment->family_pets->isNotEmpty() ? $appointment->family_pets : collect([$appointment->pet])->filter();
+                @endphp
+                <div class="flex flex-col gap-1">
+                  @foreach ($displayPets as $displayPet)
+                    <div>
+                      <span>{{ $displayPet->name }}</span>
+                      @if ($displayPet->rating === 'green')
+                        <i class="fa-solid fa-star" style="color: lightseagreen"></i>
+                      @elseif ($displayPet->rating === 'yellow')
+                        <i class="fa-solid fa-star" style="color: gold"></i>
+                      @elseif ($displayPet->rating === 'red')
+                        <i class="fa-solid fa-star" style="color: tomato"></i>
+                      @endif
+                    </div>
+                  @endforeach
+                </div>
+              </td>
+              <td>
+                <div class="flex items-center gap-2">
+                  @if (!empty($assignmentDetails))
+                    @if ($uniqueRoomNames->count() === 1)
+                      <span>{{ $uniqueRoomNames->first() }}</span>
+                    @else
+                      <div class="flex flex-col gap-1">
+                        @foreach ($assignmentDetails as $assignmentDetail)
+                          <span>{{ $assignmentDetail['room_name'] ?: '—' }}</span>
+                        @endforeach
+                      </div>
+                    @endif
+                  @else
+                    <span>{{ optional($appointment->catRoom)->name ?? $roomByKennel->get((string) $appointment->kennel_id, '—') }}</span>
+                  @endif
+                  @if ($hasConflict)
+                    <span class="assignment-conflict-badge">
+                      <span class="iconify lucide--alert-circle size-3"></span>
+                      Conflict
+                    </span>
+                  @endif
+                </div>
+              </td>
+              <td>
+                <div class="flex items-center gap-2">
+                  @if (!empty($assignmentDetails))
+                    @if ($uniqueKennelNames->count() === 1)
+                      <span>{{ $uniqueKennelNames->first() }}</span>
+                    @elseif ($uniqueKennelNames->isEmpty())
+                      <span>—</span>
+                    @else
+                      <div class="flex flex-col gap-1">
+                        @foreach ($uniqueKennelNames as $kennelName)
+                          <span>{{ $kennelName }}</span>
+                        @endforeach
+                      </div>
+                    @endif
+                  @else
+                    <span>{{ optional($appointment->kennel)->name ?? '—' }}</span>
+                  @endif
+                  @if ($hasConflict)
+                    <span class="assignment-conflict-badge">
+                      <span class="iconify lucide--alert-circle size-3"></span>
+                      {{ getAssignmentConflictLabel($appointment, 'Conflict') }}
+                    </span>
+                  @endif
+                </div>
               </td>
               <td>{{ $appointment->service->name }}</td>
               <td>{{ $appointment->staff_id ? ($appointment->staff->profile ? $appointment->staff->profile->first_name : $appointment->staff->name) : 'Unassigned' }}</td>
-              <td style="text-align:center">{{ \Carbon\Carbon::parse($appointment->date)->format('m/d/Y') }}</td>
               <td style="text-align:center">
-                {{ $appointment->start_time ? \Carbon\Carbon::createFromFormat('H:i:s', $appointment->start_time)->format('h:i A') : '—' }}
+                {{ $checkInDate->format('M j') }}{{ !$hasStay && $appointment->start_time ? ', ' . \Carbon\Carbon::createFromFormat('H:i:s', $appointment->start_time)->format('g:i A') : '' }}
               </td>
               <td style="text-align:center">
-                {{ $appointment->end_time ? \Carbon\Carbon::createFromFormat('H:i:s', $appointment->end_time)->format('h:i A') : '—' }}
+                {{ $pickupDate->format('M j') }},{{ $appointment->end_time ? ' ' . \Carbon\Carbon::createFromFormat('H:i:s', $appointment->end_time)->format('g:i A') : '' }}
               </td>
               <td style="text-align:center">
-                @if($appointment->status === 'checked_in')
-                  Scheduled
-                @elseif($appointment->status === 'in_progress')
-                  {{ (isBoardingService($appointment->service) || isDaycareService($appointment->service)) ? 'On Property' : 'In Progress' }}
+                @if ($hasStay)
+                  {{ $stayDays }} {{ $stayDays === 1 ? 'day' : 'days' }}
                 @else
-                  {{ ucfirst(str_replace('_', ' ', $appointment->status)) }}
+                  —
                 @endif
+              </td>
+              <td style="text-align:center">
+                @if ($hasStay)
+                  {{ $totalMeals }} meals
+                @else
+                  —
+                @endif
+              </td>
+              <td style="text-align:center">
+                @php
+                  $statusLabel = appointment_status_label($appointment->status, $appointment->service);
+                  $statusBadgeClass = match ($appointment->status) {
+                    'checked_in' => 'badge-soft badge-info',
+                    'wait listed' => 'badge-soft badge-secondary',
+                    'in_progress' => 'badge-soft badge-warning',
+                    'completed' => 'badge-soft badge-primary',
+                    'finished' => 'badge-soft badge-success',
+                    'cancelled', 'no_show' => 'badge-soft badge-error',
+                    'issue' => 'badge-soft badge-error',
+                    default => 'badge-soft badge-ghost',
+                  };
+                @endphp
+                <span class="badge badge-sm {{ $statusBadgeClass }}">{{ $statusLabel }}</span>
               </td>
               <td>
                 <div class="inline-flex w-fit">

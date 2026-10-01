@@ -24,6 +24,9 @@ use App\Models\Transaction;
 use App\Models\Package;
 use App\Models\CustomerPackage;
 use App\Models\Notification;
+use App\Models\Kennel;
+use App\Models\Room;
+use App\Models\PetVaccination;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
 use App\Mail\Invoice as InvoiceMail;
@@ -40,18 +43,39 @@ class AppointmentController extends Controller
         $staffId = $request->get('staff');
         $status = $request->get('status');
 
+        // A tampered query string (e.g. status[]=x) must not reach the query or the view.
+        if (!is_string($status)) {
+            $status = null;
+        }
+
+        $statusOptions = [
+            '' => 'All Statuses',
+            'checked_in' => 'Scheduled',
+            'wait listed' => 'Wait Listed',
+            'in_progress' => 'On Property',
+            'completed' => 'Completed',
+            'finished' => 'Finished',
+            'cancelled' => 'Cancelled',
+            'no_show' => 'No Show',
+            'issue' => 'Issue',
+            'confirmed' => 'Confirmed',
+        ];
+
         $datetimes = $request->get('datetimes');
 
         // get appointments
         if ($customerPet) {
-            $appointments = Appointment::whereHas('customer', function ($query) use ($customerPet) {
-                $query->where('email', 'like', "%{$customerPet}%")
-                    ->orWhereHas('profile', function ($q) use ($customerPet) {
-                        $q->where('first_name', 'like', "%{$customerPet}%")
-                            ->orWhere('last_name', 'like', "%{$customerPet}%");
-                    });
-            })->orWhereHas('pet', function ($query) use ($customerPet) {
-                $query->where('name', 'like', "%{$customerPet}%");
+            // Grouped so the service/staff/status filters below apply to both branches of the search.
+            $appointments = Appointment::where(function ($search) use ($customerPet) {
+                $search->whereHas('customer', function ($query) use ($customerPet) {
+                    $query->where('email', 'like', "%{$customerPet}%")
+                        ->orWhereHas('profile', function ($q) use ($customerPet) {
+                            $q->where('first_name', 'like', "%{$customerPet}%")
+                                ->orWhere('last_name', 'like', "%{$customerPet}%");
+                        });
+                })->orWhereHas('pet', function ($query) use ($customerPet) {
+                    $query->where('name', 'like', "%{$customerPet}%");
+                });
             });
         } else {
             $appointments = Appointment::query();
@@ -80,14 +104,36 @@ class AppointmentController extends Controller
                     ->whereRaw("CONCAT(date, ' ', end_time) <= ?", [$endDateTime]);
             });
         }
-        $appointments = $appointments->orderBy('created_at', 'desc')->paginate($perPage);
+        $appointments = $appointments->orderBy('created_at', 'desc')->paginate($perPage)->withQueryString();
+
+        $kennelIds = $appointments->getCollection()
+            ->pluck('kennel_id')
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        $roomByKennel = collect();
+        if ($kennelIds->isNotEmpty()) {
+            $activeKennelIds = $kennelIds->all();
+
+            Room::select(['name', 'kennel_ids'])
+                ->get()
+                ->each(function ($room) use ($activeKennelIds, &$roomByKennel) {
+                    collect($room->kennel_id_array)
+                        ->intersect($activeKennelIds)
+                        ->each(function ($kennelId) use ($room, &$roomByKennel) {
+                            $roomByKennel->put((string) $kennelId, $room->name);
+                        });
+                });
+        }
 
         $services = Service::where('status', 'active')->where('level', 'primary')->get();
         $staffs = User::whereHas('roles', function ($query) {
             $query->whereNot('title', 'customer');
         })->get();
 
-        return view('appointments.index', compact('appointments', 'perPage', 'services', 'staffs', 'datetimes', 'customerPet', 'serviceId', 'staffId', 'status'));
+        return view('appointments.index', compact('appointments', 'perPage', 'services', 'staffs', 'datetimes', 'customerPet', 'serviceId', 'staffId', 'status', 'roomByKennel', 'statusOptions'));
     }
 
     public function add(Request $request)
@@ -123,6 +169,9 @@ class AppointmentController extends Controller
             ->with('category')
             ->get();
 
+        $kennels = Kennel::orderBy('name')->get();
+        $rooms = $this->getAssignmentRooms();
+
         return view('appointments.create', compact(
             'services',
             'additionalServices',
@@ -131,9 +180,21 @@ class AppointmentController extends Controller
             'serviceId',
             'groupClasses',
             'secondaryServices',
-            'packages'
+            'packages',
+            'kennels',
+            'rooms'
         ));
     }
+
+    private function isBoardingServiceId($serviceId): bool
+    {
+        if (!is_scalar($serviceId) || !$serviceId) {
+            return false;
+        }
+
+        return isBoardingService(Service::with('category')->find($serviceId));
+    }
+
 
     public function getCustomers(Request $request)
     {
@@ -211,7 +272,9 @@ class AppointmentController extends Controller
             'daycare_duration' => 'nullable|in:half,full',
             'private_training_duration' => 'nullable|in:half,one',
             'secondary_service_ids' => 'nullable|array',
-            'secondary_service_ids.*' => 'exists:services,id'
+            'secondary_service_ids.*' => 'exists:services,id',
+            'pickup_time' => ['nullable', 'regex:/^\d{2}:\d{2}(:\d{2})?$/'],
+            'is_boarding_additional_service' => 'nullable|boolean'
         ]);
 
         $serviceId = $request->service_id;
@@ -220,6 +283,8 @@ class AppointmentController extends Controller
         $daycareDuration = $request->daycare_duration;
         $privateTrainingDuration = $request->private_training_duration;
         $secondaryServiceIds = $request->secondary_service_ids ?? [];
+        $pickupTime = $request->pickup_time;
+        $isBoardingAdditionalService = $request->boolean('is_boarding_additional_service');
 
         $timeSlots = [];
 
@@ -228,8 +293,16 @@ class AppointmentController extends Controller
             $pet = PetProfile::find($petId);
             $petSize = $pet ? $pet->size : 'medium';
 
-            // Handle ala carte service
-            if (isAlaCarteService($service) && !empty($secondaryServiceIds)) {
+            if ($isBoardingAdditionalService) {
+                // Additional service booked alongside a boarding stay (sunshine-laravel logic).
+                $query = TimeSlot::where('service_id', $serviceId)
+                        ->whereDate('date', $date)
+                        ->where('status', 'available')
+                        ->whereRaw('booked_count < capacity');
+
+                $timeSlots = $query->orderBy('start_time')->get();
+            } else if (isAlaCarteService($service) && !empty($secondaryServiceIds)) {
+                // Handle ala carte service
                 $timeSlots = $this->getAlaCarteTimeSlots($serviceId, $date, $petSize, $secondaryServiceIds);
             } else {
                 $query = TimeSlot::where('service_id', $serviceId)->whereDate('date', $date);
@@ -244,6 +317,10 @@ class AppointmentController extends Controller
 
                 $timeSlots = $query->orderBy('start_time')->get();
             }
+        }
+
+        if ($pickupTime) {
+            $timeSlots = $this->filterTimeSlotsByPickupTime($timeSlots, $pickupTime);
         }
 
         return response()->json($timeSlots);
@@ -582,6 +659,11 @@ class AppointmentController extends Controller
 
     public function getValidationInfo(Request $request)
     {
+        // Only the boarding form sends pet_ids (it supports several pets per appointment).
+        if ($request->has('pet_ids')) {
+            return $this->getBoardingValidationInfo($request);
+        }
+
         $request->validate([
             'pet_id' => 'required|exists:pet_profiles,id',
             'service_id' => 'required|exists:services,id',
@@ -695,6 +777,10 @@ class AppointmentController extends Controller
 
     public function create(Request $request)
     {
+        if ($this->isBoardingServiceId($request->input('service'))) {
+            return $this->createBoarding($request);
+        }
+
         $request->validate([
             'customer' => 'required|exists:users,id',
             'pet' => 'required|exists:pet_profiles,id',
@@ -708,9 +794,12 @@ class AppointmentController extends Controller
             'secondary_services.*' => 'exists:services,id',
             'group_class_ids' => 'nullable|array',
             'group_class_ids.*' => 'exists:group_classes,id',
+            'appointment_notes' => 'nullable|string',
+            'is_wait_listed' => 'nullable|boolean',
         ]);
 
         $timeSlot = TimeSlot::with('service.category')->find($request->time_slot);
+        $isWaitListed = $request->boolean('is_wait_listed');
 
         $metadata = [];
         if ($timeSlot) {
@@ -812,14 +901,23 @@ class AppointmentController extends Controller
                     $appointment->estimated_price = $boardingTotal + $additionalServicesTotal;
                 }
             }
-            $appointment->status = 'checked_in';
+            $appointment->status = $isWaitListed ? 'wait listed' : 'checked_in';
 
             $appointment->additional_service_ids = $request->filled('additional_services') ?
                 implode(',', $request->additional_services) : null;
 
+            if ($request->filled('appointment_notes')) {
+                $metadata['appointment_notes'] = $request->input('appointment_notes');
+            }
+
             $appointment->metadata = !empty($metadata) ? $metadata : null;
             $appointment->save();
-            appointment_audit_log($appointment->id, "Appointment is created.");
+
+            if ($appointment->status === 'checked_in') {
+                appointment_audit_log($appointment->id, "Appointment is created.");
+            } else {
+                appointment_audit_log($appointment->id, "Appointment status changed to " . appointment_status_label($appointment->status, $appointment->service) . ".");
+            }
         }
 
         if ($timeSlot && !is_null($timeSlot->capacity)) {
@@ -943,10 +1041,19 @@ class AppointmentController extends Controller
             }
         }
         
+        if ($request->filled('appointment_notes')) {
+            $metadata['appointment_notes'] = $request->input('appointment_notes');
+        }
+
         $appointment->metadata = $metadata;
-        $appointment->status = 'checked_in';
+        $appointment->status = $request->boolean('is_wait_listed') ? 'wait listed' : 'checked_in';
         $appointment->save();
-        appointment_audit_log($appointment->id, "Appointment is created.");
+
+        if ($appointment->status === 'checked_in') {
+            appointment_audit_log($appointment->id, "Appointment is created.");
+        } else {
+            appointment_audit_log($appointment->id, "Appointment status changed to " . appointment_status_label($appointment->status, $appointment->service) . ".");
+        }
 
         $message = 'Package appointment created successfully.';
         if (!empty($validationWarnings)) {
@@ -1021,7 +1128,30 @@ class AppointmentController extends Controller
 
         $timeSlots = collect([]);
 
-        if (isAlaCarteService($service) && $appointment->metadata && isset($appointment->metadata['secondary_service_ids']) && $appointment->date) {
+        if (isBoardingService($service)) {
+            $slotServiceId = $appointment->metadata['additional_service_time_slot_service_id'] ?? null;
+            $slotDate = $appointment->metadata['additional_service_time_slot_date'] ?? $appointment->end_date;
+            $pickupTime = $appointment->end_time;
+
+            if ($slotServiceId && $slotDate && $appointment->pet_id) {
+                $timeSlots = TimeSlot::where('service_id', $slotServiceId)
+                    ->whereDate('date', $slotDate)
+                    ->orderBy('start_time')
+                    ->get();
+
+                if ($pickupTime) {
+                    $timeSlots = $this->filterTimeSlotsByPickupTime($timeSlots, $pickupTime);
+                }
+
+                $selectedSlotId = $appointment->metadata['additional_service_time_slot_id'] ?? null;
+                if ($selectedSlotId) {
+                    $selectedSlot = TimeSlot::find($selectedSlotId);
+                    if ($selectedSlot && !$timeSlots->contains('id', $selectedSlot->id)) {
+                        $timeSlots->prepend($selectedSlot);
+                    }
+                }
+            }
+        } else if (isAlaCarteService($service) && $appointment->metadata && isset($appointment->metadata['secondary_service_ids']) && $appointment->date) {
             $pet = PetProfile::find($appointment->pet_id);
             $petSize = $pet ? $pet->size : 'medium';
             $secondaryServiceIds = explode(',', $appointment->metadata['secondary_service_ids']);
@@ -1054,11 +1184,47 @@ class AppointmentController extends Controller
 
         $packages = Package::where('status', 'active')->orderBy('created_at', 'desc')->get();
 
-        return view('appointments.update', compact('appointment', 'services', 'additionalServices', 'timeSlots', 'groupClasses', 'secondaryServices', 'packages'));
+        $kennels = Kennel::orderBy('name')->get();
+        $rooms = $this->getAssignmentRooms();
+        $selectedAssignmentRoomId = $appointment->cat_room_id;
+        $selectedAssignmentKennelId = $appointment->kennel_id;
+
+        if (!$selectedAssignmentRoomId && $selectedAssignmentKennelId) {
+            $selectedAssignmentRoomId = $rooms->first(function ($room) use ($selectedAssignmentKennelId) {
+                return in_array((int) $selectedAssignmentKennelId, $room->kennel_id_array, true);
+            })?->id;
+        }
+
+        $appointmentAdditionalServicesByPet = $appointment->additional_services_by_pet;
+        $selectedAdditionalServiceIdsFlat = $appointment->additional_service_ids_flat;
+
+        return view('appointments.update', compact(
+            'appointment',
+            'services',
+            'additionalServices',
+            'timeSlots',
+            'groupClasses',
+            'secondaryServices',
+            'packages',
+            'kennels',
+            'rooms',
+            'selectedAssignmentRoomId',
+            'selectedAssignmentKennelId',
+            'appointmentAdditionalServicesByPet',
+            'selectedAdditionalServiceIdsFlat'
+        ));
     }
 
     public function update(Request $request)
     {
+        if ($this->isBoardingServiceId($request->input('service'))) {
+            $previousAppointment = Appointment::with('service.category')->find($request->input('appointment_id'));
+            $response = $this->updateBoarding($request);
+            $this->clearPreviousServiceData($previousAppointment);
+
+            return $response;
+        }
+
         $request->validate([
             'appointment_id' => 'required|exists:appointments,id',
             'customer' => 'required|exists:users,id',
@@ -1073,9 +1239,12 @@ class AppointmentController extends Controller
             'secondary_services.*' => 'exists:services,id',
             'group_class_ids' => 'nullable|array',
             'group_class_ids.*' => 'exists:group_classes,id',
+            'appointment_notes' => 'nullable|string',
+            'is_wait_listed' => 'nullable|boolean',
         ]);
 
         $timeSlot = TimeSlot::with('service.category')->find($request->time_slot);
+        $isWaitListed = $request->boolean('is_wait_listed');
 
         $metadata = [];
         if ($timeSlot) {
@@ -1120,6 +1289,10 @@ class AppointmentController extends Controller
         }
 
         $appointment = Appointment::findOrFail($request->appointment_id);
+        if (isBoardingService($appointment->service)) {
+            // Boarding changed to another service: free its room, kennel and add-on slots.
+            $this->releaseBoardingAssignment($appointment);
+        }
         $oldStatus = $appointment->status;
         $appointment->customer_id = $request->customer;
         $appointment->pet_id = $request->pet;
@@ -1182,6 +1355,16 @@ class AppointmentController extends Controller
             }
         }
 
+        if ($request->has('appointment_notes')) {
+            $notesMetadata = is_array($appointment->metadata) ? $appointment->metadata : [];
+            if ($request->filled('appointment_notes')) {
+                $notesMetadata['appointment_notes'] = $request->input('appointment_notes');
+            } else {
+                unset($notesMetadata['appointment_notes']);
+            }
+            $appointment->metadata = !empty($notesMetadata) ? $notesMetadata : null;
+        }
+
         if ($request->filled('status')) {
             $newStatus = $request->status;
             if (in_array($newStatus, ['cancelled', 'no_show'])) {
@@ -1192,6 +1375,12 @@ class AppointmentController extends Controller
                     $this->releaseTimeSlots($appointment);
                 }
             }
+        }
+
+        if ($isWaitListed) {
+            $appointment->status = 'wait listed';
+        } elseif ($oldStatus === 'wait listed' && !in_array($appointment->status, ['cancelled', 'no_show'], true)) {
+            $appointment->status = 'checked_in';
         }
 
         $appointment->save();
@@ -1463,13 +1652,7 @@ class AppointmentController extends Controller
 
     public function viewCalendar(Request $request)
     {
-        $serviceId = $request->get('service');
-
         $appointmentsQuery = Appointment::with(['pet', 'customer.profile', 'service']);
-
-        if ($serviceId) {
-            $appointmentsQuery->where('service_id', $serviceId);
-        }
 
         $appointments = $appointmentsQuery->get();
 
@@ -1535,14 +1718,8 @@ class AppointmentController extends Controller
             }
         });
 
-        $services = Service::where('status', 'active')
-            ->where('level', 'primary')
-            ->get();
-
         return view('appointments.calendar', [
             'appointments' => $expandedAppointments,
-            'services' => $services,
-            'serviceId' => $serviceId,
         ]);
     }
 
@@ -2388,6 +2565,66 @@ class AppointmentController extends Controller
 
     private function releaseTimeSlots(Appointment $appointment)
     {
+        $metadata = is_array($appointment->metadata) ? $appointment->metadata : [];
+        $releasedAdditionalServiceSlots = false;
+
+        if (!empty($metadata['additional_service_time_slots_by_pet']) && is_array($metadata['additional_service_time_slots_by_pet'])) {
+            $slotReleaseCounts = [];
+
+            foreach ($metadata['additional_service_time_slots_by_pet'] as $petId => $serviceSlots) {
+                if (!is_array($serviceSlots)) {
+                    continue;
+                }
+
+                foreach ($serviceSlots as $serviceId => $slotDetails) {
+                    $slotId = (int) ($slotDetails['time_slot_id'] ?? 0);
+                    if ($slotId <= 0) {
+                        continue;
+                    }
+
+                    $slotReleaseCounts[$slotId] = ($slotReleaseCounts[$slotId] ?? 0) + 1;
+                }
+            }
+
+            foreach ($slotReleaseCounts as $slotId => $releaseCount) {
+                $slot = TimeSlot::find((int) $slotId);
+                if (!$slot) {
+                    continue;
+                }
+
+                $slot->booked_count = max(0, (int) $slot->booked_count - (int) $releaseCount);
+                if (!is_null($slot->capacity) && $slot->booked_count < $slot->capacity) {
+                    $slot->status = 'available';
+                }
+                $slot->save();
+            }
+
+            $releasedAdditionalServiceSlots = !empty($slotReleaseCounts);
+        }
+
+        if (!$releasedAdditionalServiceSlots && !empty($metadata['additional_service_time_slots']) && is_array($metadata['additional_service_time_slots'])) {
+            $servicePetCounts = $this->getAdditionalServicePetCounts($appointment->additional_services_by_pet ?? []);
+
+            foreach ($metadata['additional_service_time_slots'] as $serviceId => $slotDetails) {
+                $slotId = (int) ($slotDetails['time_slot_id'] ?? 0);
+                if ($slotId <= 0) {
+                    continue;
+                }
+
+                $slot = TimeSlot::find($slotId);
+                if (!$slot) {
+                    continue;
+                }
+
+                $releaseCount = max(1, (int) ($servicePetCounts[(int) $serviceId] ?? 0));
+                $slot->booked_count = max(0, (int) $slot->booked_count - $releaseCount);
+                if (!is_null($slot->capacity) && $slot->booked_count < $slot->capacity) {
+                    $slot->status = 'available';
+                }
+                $slot->save();
+            }
+        }
+
         if ($appointment->metadata && isset($appointment->metadata['used_slot_ids'])) {
             $usedSlotIds = is_array($appointment->metadata['used_slot_ids'])
                 ? $appointment->metadata['used_slot_ids']
@@ -2411,6 +2648,2826 @@ class AppointmentController extends Controller
                 }
             }
         }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Boarding appointments (ported from sunshine-laravel)
+    |--------------------------------------------------------------------------
+    | Kept identical to sunshine-laravel's AppointmentController so the two can be
+    | diffed. create(), update() and getValidationInfo() already exist here for the
+    | other services, so sunshine's versions are createBoarding(), updateBoarding()
+    | and getBoardingValidationInfo().
+    */
+
+    private function createBoarding(Request $request)
+    {
+        $request->validate([
+            'appointment_notes' => 'nullable|string',
+            'boarding_start_datetime' => 'nullable|date',
+            'boarding_end_datetime' => 'nullable|date',
+            'customer' => 'required|exists:users,id',
+            'pet' => 'required|array|min:1',
+            'pet.*' => 'exists:pet_profiles,id',
+            'service' => 'required|exists:services,id',
+            'is_wait_listed' => 'nullable|boolean',
+            'staff' => 'nullable|exists:users,id',
+            'kennel' => 'nullable|exists:kennels,id',
+            'room' => 'nullable|exists:rooms,id',
+            'allow_assignment_conflict' => 'nullable|boolean',
+            'assignment_conflict_info' => 'nullable|string',
+            'date' => 'nullable|date',
+            'time_slot' => 'nullable|exists:time_slots,id',
+            'additional_services' => 'nullable|array',
+            'additional_services.*' => 'exists:services,id',
+            'additional_services_by_pet' => 'nullable|array',
+            'additional_services_by_pet.*' => 'nullable|array',
+            'additional_services_by_pet.*.*' => 'exists:services,id',
+            'additional_service_time_slots' => 'nullable|array',
+            'additional_service_time_slots.*' => 'nullable|exists:time_slots,id',
+            'family_pet_assignments' => 'nullable|array',
+            'family_pet_assignments.*.room_id' => 'nullable|exists:rooms,id',
+            'family_pet_assignments.*.kennel_id' => 'nullable|exists:kennels,id',
+        ]);
+
+        $petIds = collect($request->input('pet', []))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        $timeSlot = TimeSlot::with('service.category')->find($request->time_slot);
+
+        $metadata = [];
+        if ($timeSlot) {
+            if (isDaycareService($timeSlot->service)) {
+                if ($timeSlot->daycare_type) {
+                    $metadata['daycare_duration'] = $timeSlot->daycare_type === 'full' ? 'full_day' : 'half_day';
+
+                    if ($timeSlot->daycare_type === 'half') {
+                        $startTime = Carbon::parse($timeSlot->start_time);
+                        $metadata['session'] = $startTime->hour < 13 ? 'morning' : 'afternoon';
+                    }
+                }
+            }
+            if (isPrivateTrainingService($timeSlot->service)) {
+                if ($timeSlot->private_training_type) {
+                    $metadata['private_training_duration'] = $timeSlot->private_training_type === 'one' ? 'one_hour' : 'half_hour';
+                }
+            }
+        }
+
+        $service = Service::with('category')->find($request->service);
+        $selectedPets = PetProfile::whereIn('id', $petIds)->get();
+        $customer = User::find($request->customer);
+        $primaryPet = $selectedPets->firstWhere('id', (int) ($petIds[0] ?? 0));
+
+        if ($customer->requiresAppointmentQuestionnaire()) {
+            $questionnaire = Questionnaire::where('pet_id', optional($primaryPet)->id)
+                ->where('user_id', $customer->id)
+                ->where('service_category_id', $service->category->id)
+                ->orderBy('created_at', 'desc')
+                ->first();
+
+            if (!$questionnaire || $questionnaire->status !== 'approved') {
+                return back()->withErrors([
+                    'pet' => 'Pet questionnaire is not approved.'
+                ])->withInput();
+            }
+        }
+
+        $isWaitListed = $request->boolean('is_wait_listed');
+        $selectedRoom = $request->filled('room') ? Room::find($request->room) : null;
+        $roomType = $this->getRoomAssignmentType($selectedRoom);
+        $assignedKennelId = $request->filled('kennel') ? (int) $request->kennel : null;
+        $familyKennelMode = $this->getFamilyKennelMode($petIds);
+        $familyKennelAssignments = $this->buildFamilyKennelAssignmentsForMode(
+            $petIds,
+            $familyKennelMode,
+            $assignedKennelId,
+            $request->input('family_kennel_assignments', [])
+        );
+        $familyPetAssignments = $this->normalizeFamilyPetAssignmentsInput(
+            $request->input('family_pet_assignments', []),
+            $petIds
+        );
+        $kennelTypeValidation = $this->validateKennelPetTypes(
+            $familyKennelMode === 'individual'
+                ? collect($familyPetAssignments)->groupBy(fn ($assignment) => (int) ($assignment['kennel_id'] ?? 0))->map(fn ($assignments) => collect($assignments)->keys()->map(fn ($petId) => (int) $petId)->all())->all()
+                : ($assignedKennelId ? [$assignedKennelId => $petIds] : [])
+        );
+        if (!$kennelTypeValidation['valid']) {
+            return back()->withErrors(['kennel' => $kennelTypeValidation['message']])->withInput();
+        }
+        $assignmentConflict = null;
+
+        if (isBoardingService($service) && !$isWaitListed) {
+            if ($familyKennelMode !== 'individual' && !$selectedRoom) {
+                return back()->withErrors([
+                    'room' => 'Please select a room for the boarding appointment.'
+                ])->withInput();
+            }
+
+            if ($familyKennelMode === 'individual') {
+                if (count($familyPetAssignments) !== count($petIds)) {
+                    return back()->withErrors([
+                        'room' => 'Please assign a room to each selected pet.'
+                    ])->withInput();
+                }
+
+                $roomIds = collect($familyPetAssignments)
+                    ->pluck('room_id')
+                    ->map(fn ($id) => (int) $id)
+                    ->filter(fn ($id) => $id > 0)
+                    ->unique()
+                    ->values()
+                    ->all();
+
+                $roomsById = Room::whereIn('id', $roomIds)->get()->keyBy('id');
+
+                foreach ($familyPetAssignments as $petId => $assignment) {
+                    $roomId = (int) ($assignment['room_id'] ?? 0);
+                    $kennelId = (int) ($assignment['kennel_id'] ?? 0);
+                    $room = $roomsById->get($roomId);
+
+                    if (!$room) {
+                        return back()->withErrors([
+                            'room' => 'One or more selected rooms are invalid.'
+                        ])->withInput();
+                    }
+
+                    $petTypeValidation = $this->validateRoomPetTypes($room, [(int) $petId]);
+                    if ($petTypeValidation['valid'] === false) {
+                        return back()->withErrors([
+                            'room' => $petTypeValidation['message'] ?? 'This room cannot be used for one or more selected pets.'
+                        ])->withInput();
+                    }
+
+                    if ($this->getRoomAssignmentType($room) === 'standard') {
+                        if ($kennelId <= 0) {
+                            return back()->withErrors([
+                                'kennel' => 'Please assign a kennel to each selected pet in a standard room.'
+                            ])->withInput();
+                        }
+
+                        if (!in_array($kennelId, $room->kennel_id_array, true)) {
+                            return back()->withErrors([
+                                'kennel' => 'One or more kennel assignments do not belong to the selected room.'
+                            ])->withInput();
+                        }
+                    }
+                }
+
+                $familyKennelAssignments = $this->buildFamilyKennelAssignmentsFromPerPetAssignments($familyPetAssignments);
+                $primaryAssignment = $this->getPrimaryAssignmentFromPerPetAssignments($familyPetAssignments);
+                $selectedRoom = $primaryAssignment['room_id'] ? Room::find($primaryAssignment['room_id']) : null;
+                $roomType = $this->getRoomAssignmentType($selectedRoom);
+                $assignedKennelId = $primaryAssignment['kennel_id'];
+            } elseif ($roomType !== 'standard') {
+                $petTypeValidation = $this->validateRoomPetTypes($selectedRoom, $petIds);
+                if ($petTypeValidation['valid'] === false) {
+                    return back()->withErrors([
+                        'room' => $petTypeValidation['message'] ?? 'This room cannot be used for the selected pets.'
+                    ])->withInput();
+                }
+            } elseif ($familyKennelMode === 'individual') {
+                if (count($familyKennelAssignments) !== count($petIds)) {
+                    return back()->withErrors([
+                        'kennel' => 'Please assign a kennel to each selected pet.'
+                    ])->withInput();
+                }
+
+                $roomKennelIds = collect($selectedRoom->kennel_id_array)
+                    ->map(fn ($kennelId) => (int) $kennelId)
+                    ->filter(fn ($kennelId) => $kennelId > 0)
+                    ->values()
+                    ->all();
+
+                foreach ($familyKennelAssignments as $petId => $petKennelId) {
+                    if (!in_array((int) $petKennelId, $roomKennelIds, true)) {
+                        return back()->withErrors([
+                            'kennel' => 'One or more kennel assignments do not belong to the selected room.'
+                        ])->withInput();
+                    }
+                }
+            } else {
+                if (!$assignedKennelId) {
+                    return back()->withErrors([
+                        'kennel' => 'Please select a kennel for the selected room.'
+                    ])->withInput();
+                }
+
+                if (!in_array($assignedKennelId, $selectedRoom->kennel_id_array, true)) {
+                    return back()->withErrors([
+                        'kennel' => 'The selected kennel does not belong to the selected room.'
+                    ])->withInput();
+                }
+            }
+
+            if ($familyKennelMode !== 'individual' && $roomType === 'standard') {
+                if ($familyKennelMode === 'shared' && !$assignedKennelId) {
+                    return back()->withErrors([
+                        'kennel' => 'Please select a kennel for the selected room.'
+                    ])->withInput();
+                }
+            }
+
+            if ($request->filled('boarding_start_datetime') && $request->filled('boarding_end_datetime')) {
+                if ($familyKennelMode === 'individual') {
+                    $payloadConflict = $this->buildFamilyPetAssignmentConflictPayload(
+                        $familyPetAssignments,
+                        Carbon::parse($request->boarding_start_datetime),
+                        Carbon::parse($request->boarding_end_datetime),
+                        null
+                    );
+                } else {
+                    $payloadConflict = $this->buildAssignmentConflictPayload(
+                        $selectedRoom,
+                        $familyKennelMode,
+                        $familyKennelMode === 'shared' ? $assignedKennelId : null,
+                        $familyKennelAssignments,
+                        Carbon::parse($request->boarding_start_datetime),
+                        Carbon::parse($request->boarding_end_datetime),
+                        null,
+                        $petIds
+                    );
+                }
+
+                if (!empty($payloadConflict['conflict']) && empty($assignmentConflict)) {
+                    $assignmentConflict = $payloadConflict;
+                }
+
+                $isHardBlockedConflict = ($assignmentConflict['conflict_type'] ?? null) === 'kennel_blocked';
+
+                if (!empty($assignmentConflict['conflict']) && ($isHardBlockedConflict || !$request->boolean('allow_assignment_conflict'))) {
+                    return back()->withErrors([
+                        'room' => $assignmentConflict['message'] ?? 'The selected assignment is already in use during this time period.'
+                    ])->withInput();
+                }
+            }
+        }
+
+        $additionalServicesByPet = $this->normalizeAdditionalServicesByPetInput(
+            $petIds,
+            $request->input('additional_services_by_pet', []),
+            $request->input('additional_services', [])
+        );
+
+        $selectedAdditionalServiceIds = collect($additionalServicesByPet)
+            ->flatten()
+            ->map(fn ($serviceId) => (int) $serviceId)
+            ->filter(fn ($serviceId) => $serviceId > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        $selectedAdditionalServices = !empty($selectedAdditionalServiceIds)
+            ? Service::with('category')->whereIn('id', $selectedAdditionalServiceIds)->get()
+            : collect([]);
+
+        $hasNonGroomingAdditionalService = $selectedAdditionalServices->contains(function ($additionalService) {
+            return !isGroomingService($additionalService);
+        });
+
+        if ($hasNonGroomingAdditionalService) {
+            return back()->withErrors([
+                'additional_services' => 'Additional services must be grooming services.'
+            ])->withInput();
+        }
+
+        $requiresBoardingAdditionalService = isBoardingService($service);
+
+        $requiresAdditionalServiceTimeSlot = $requiresBoardingAdditionalService && $selectedAdditionalServices->isNotEmpty();
+
+        $requiredAdditionalServicePairCount = collect($additionalServicesByPet)
+            ->map(function ($serviceIds) {
+                if (!is_array($serviceIds)) {
+                    return 0;
+                }
+
+                return collect($serviceIds)
+                    ->map(fn ($serviceId) => (int) $serviceId)
+                    ->filter(fn ($serviceId) => $serviceId > 0)
+                    ->unique()
+                    ->count();
+            })
+            ->sum();
+
+        $additionalServiceTimeSlotAssignments = $this->normalizeAdditionalServiceTimeSlotsByPetInput(
+            $request->input('additional_service_time_slots_by_pet', []),
+            $additionalServicesByPet,
+            $request->filled('time_slot') ? (int) $request->time_slot : null,
+            $request->input('additional_service_time_slots', [])
+        );
+
+        $additionalTimeSlotIds = collect($additionalServiceTimeSlotAssignments)
+            ->pluck('time_slot_id')
+            ->map(fn ($slotId) => (int) $slotId)
+            ->filter(fn ($slotId) => $slotId > 0)
+            ->unique()
+            ->values();
+
+        $additionalTimeSlotsById = $additionalTimeSlotIds->isNotEmpty()
+            ? TimeSlot::with('service.category')->whereIn('id', $additionalTimeSlotIds->all())->get()->keyBy('id')
+            : collect();
+
+        $additionalServiceTimeSlotDetailsByPet = [];
+        $additionalServiceTimeSlotDetailsByService = [];
+        foreach ($additionalServiceTimeSlotAssignments as $assignment) {
+            $selectedPetId = (int) ($assignment['pet_id'] ?? 0);
+            $selectedAdditionalServiceId = (int) ($assignment['service_id'] ?? 0);
+            $selectedTimeSlotId = (int) ($assignment['time_slot_id'] ?? 0);
+
+            $timeSlotForService = $additionalTimeSlotsById->get($selectedTimeSlotId);
+            if (!$timeSlotForService || (int) $timeSlotForService->service_id !== $selectedAdditionalServiceId) {
+                return back()->withErrors([
+                    'additional_service_time_slots' => 'Please select a valid time slot for each additional service.'
+                ])->withInput();
+            }
+
+            $slotDetails = [
+                'time_slot_id' => (int) $timeSlotForService->id,
+                'service_id' => (int) $timeSlotForService->service_id,
+                'date' => $timeSlotForService->date,
+                'start_time' => $timeSlotForService->start_time,
+                'end_time' => $timeSlotForService->end_time,
+            ];
+
+            $additionalServiceTimeSlotDetailsByPet[$selectedPetId][$selectedAdditionalServiceId] = $slotDetails;
+
+            if (!isset($additionalServiceTimeSlotDetailsByService[$selectedAdditionalServiceId])) {
+                $additionalServiceTimeSlotDetailsByService[$selectedAdditionalServiceId] = $slotDetails;
+            }
+        }
+
+        if ($requiresAdditionalServiceTimeSlot && count($additionalServiceTimeSlotAssignments) !== (int) $requiredAdditionalServicePairCount) {
+            return back()->withErrors([
+                'additional_service_time_slots' => 'Please select a valid time slot for each additional service.'
+            ])->withInput();
+        }
+
+        if ($request->has('secondary_services')) {
+            $metadata['secondary_service_ids'] = implode(',', $request->secondary_services);
+        }
+
+        if ($selectedRoom && !$isWaitListed) {
+            $metadata['room_id'] = $selectedRoom->id;
+            $metadata['room_name'] = $selectedRoom->name;
+        }
+
+        if ($requiresAdditionalServiceTimeSlot && !empty($additionalServiceTimeSlotDetailsByPet)) {
+            $metadata['additional_service_time_slots_by_pet'] = $additionalServiceTimeSlotDetailsByPet;
+            $metadata['additional_service_time_slots'] = $additionalServiceTimeSlotDetailsByService;
+
+            $firstAdditionalServiceTimeSlot = collect($additionalServiceTimeSlotDetailsByService)->first();
+            if ($firstAdditionalServiceTimeSlot) {
+                $metadata['additional_service_time_slot_id'] = $firstAdditionalServiceTimeSlot['time_slot_id'] ?? null;
+                $metadata['additional_service_time_slot_service_id'] = $firstAdditionalServiceTimeSlot['service_id'] ?? null;
+                $metadata['additional_service_time_slot_date'] = $firstAdditionalServiceTimeSlot['date'] ?? null;
+                $metadata['additional_service_time_slot_start_time'] = $firstAdditionalServiceTimeSlot['start_time'] ?? null;
+                $metadata['additional_service_time_slot_end_time'] = $firstAdditionalServiceTimeSlot['end_time'] ?? null;
+            }
+        } else {
+            unset(
+                $metadata['additional_service_time_slots_by_pet'],
+                $metadata['additional_service_time_slots'],
+                $metadata['additional_service_time_slot_id'],
+                $metadata['additional_service_time_slot_service_id'],
+                $metadata['additional_service_time_slot_date'],
+                $metadata['additional_service_time_slot_start_time'],
+                $metadata['additional_service_time_slot_end_time']
+            );
+        }
+
+        if ($selectedRoom && !$isWaitListed) {
+            $metadata['assignment_room_id'] = $selectedRoom->id;
+            $metadata['assignment_room_name'] = $selectedRoom->name;
+            $metadata['assignment_room_type'] = $roomType;
+            $assignmentKennelId = $this->getAssignmentKennelIdForMode($familyKennelMode, $assignedKennelId, $familyKennelAssignments);
+
+            if ($roomType === 'standard' && $assignmentKennelId) {
+                $metadata['assignment_kennel_id'] = $assignmentKennelId;
+                $metadata['assignment_kennel_name'] = optional(Kennel::find($assignmentKennelId))->name;
+            } else {
+                unset($metadata['assignment_kennel_id'], $metadata['assignment_kennel_name']);
+            }
+
+            $metadata['family_kennel_mode'] = $familyKennelMode;
+            if (!empty($familyKennelAssignments)) {
+                $metadata['family_kennel_assignments'] = $familyKennelAssignments;
+            } else {
+                unset($metadata['family_kennel_assignments']);
+            }
+
+            if (!empty($familyPetAssignments)) {
+                $metadata['family_pet_assignments'] = $familyPetAssignments;
+            } else {
+                unset($metadata['family_pet_assignments']);
+            }
+
+            if (!empty($assignmentConflict['conflict'])) {
+                $metadata['assignment_conflict'] = true;
+                $metadata['assignment_conflict_type'] = $assignmentConflict['conflict_type'] ?? null;
+                $metadata['assignment_conflict_message'] = $assignmentConflict['message'] ?? null;
+                $metadata['assignment_conflict_occupants'] = $assignmentConflict['current_occupants'] ?? [];
+                $metadata['warning_codes'] = array_values(array_filter(
+                    is_array($assignmentConflict['warning_codes'] ?? null)
+                        ? $assignmentConflict['warning_codes']
+                        : []
+                ));
+                if ($request->boolean('allow_assignment_conflict')) {
+                    $metadata['was_allowed_with_conflict'] = true;
+                }
+            } else {
+                unset(
+                    $metadata['assignment_conflict'],
+                    $metadata['assignment_conflict_type'],
+                    $metadata['assignment_conflict_message'],
+                    $metadata['assignment_conflict_occupants'],
+                    $metadata['warning_codes'],
+                    $metadata['was_allowed_with_conflict']
+                );
+            }
+        }
+
+        $usedSlotIds = [];
+
+        if ($timeSlot && !is_null($timeSlot->capacity) && ($timeSlot->booked_count + count($petIds)) > $timeSlot->capacity) {
+            return back()->withErrors([
+                'time_slot' => 'The selected time slot does not have enough capacity for all selected pets.'
+            ])->withInput();
+        }
+
+        if ($requiresAdditionalServiceTimeSlot) {
+            $slotUsageCounts = collect($additionalServiceTimeSlotAssignments)
+                ->groupBy('time_slot_id')
+                ->map(fn ($rows) => $rows->count())
+                ->all();
+
+            foreach ($slotUsageCounts as $timeSlotId => $requiredCapacity) {
+                $slotModel = $additionalTimeSlotsById->get((int) $timeSlotId);
+                if (!$slotModel) {
+                    continue;
+                }
+
+                if (!is_null($slotModel->capacity) && ($slotModel->booked_count + $requiredCapacity) > $slotModel->capacity) {
+                    return back()->withErrors([
+                        'additional_service_time_slots' => 'One or more selected additional service time slots does not have enough capacity.'
+                    ])->withInput();
+                }
+            }
+        }
+
+        $primaryPetId = $petIds[0] ?? null;
+
+        if (count($petIds) > 1) {
+            $metadata['family_pet_ids'] = $petIds;
+        } else {
+            unset($metadata['family_pet_ids']);
+        }
+
+        if (count($petIds) > 1 || !empty(collect($additionalServicesByPet)->flatten()->all())) {
+            $metadata['additional_services_by_pet'] = $additionalServicesByPet;
+        } else {
+            unset($metadata['additional_services_by_pet']);
+        }
+
+        $appointment = new Appointment;
+        $appointment->customer_id = $request->customer;
+        $appointment->pet_id = $primaryPetId;
+        $appointment->service_id = $request->service;
+        $appointment->kennel_id = !$isWaitListed && isBoardingService($service) && $roomType === 'standard'
+            ? $this->getAssignmentKennelIdForMode($familyKennelMode, $assignedKennelId, $familyKennelAssignments)
+            : null;
+        $appointment->cat_room_id = !$isWaitListed ? $selectedRoom?->id : null;
+
+        if ($request->filled('staff')) {
+            $appointment->staff_id = $request->staff;
+        }
+
+        if ($request->filled('date')) {
+            $appointment->date = $request->date;
+
+            if (isAlaCarteService($service) && $alaCarteStartTime && $alaCarteEndTime) {
+                $appointment->start_time = $alaCarteStartTime;
+                $appointment->end_time = $alaCarteEndTime;
+            } else {
+                $appointment->start_time = $timeSlot ? $timeSlot->start_time : null;
+                $appointment->end_time = $timeSlot ? $timeSlot->end_time : null;
+            }
+        } else if ($request->filled('boarding_start_datetime') && $request->filled('boarding_end_datetime')) {
+            $startDateTime = Carbon::parse($request->boarding_start_datetime);
+            $endDateTime = Carbon::parse($request->boarding_end_datetime);
+
+            if (isBoardingService($service)) {
+                $dropOffMinutes = ((int) $startDateTime->format('H') * 60) + (int) $startDateTime->format('i');
+                $businessStartMinutes = (7 * 60) + 30;
+                $businessEndMinutes = (17 * 60) + 30;
+                $isEarlyDropOff = $dropOffMinutes < $businessStartMinutes;
+                $isLateDropOff = $dropOffMinutes > $businessEndMinutes;
+                $canCreateEarlyDropOff = Auth::user()
+                    ? Auth::user()->roles()->whereRaw('LOWER(title) = ?', ['owner'])->exists()
+                    : false;
+
+                if (($isEarlyDropOff && !$canCreateEarlyDropOff) || $isLateDropOff) {
+                    return back()->withErrors([
+                        'boarding_start_datetime' => 'Drop-off time must be between 7:30 AM and 5:30 PM.'
+                    ])->withInput();
+                }
+            }
+
+            $pickupMinutes = ((int) $endDateTime->format('H') * 60) + (int) $endDateTime->format('i');
+            if ($pickupMinutes < (7 * 60) + 30 || $pickupMinutes > (17 * 60) + 30) {
+                return back()->withErrors([
+                    'boarding_end_datetime' => 'Pick-up time must be between 7:30 AM and 5:30 PM.'
+                ])->withInput();
+            }
+
+            if ($requiresAdditionalServiceTimeSlot) {
+                foreach ($additionalServiceTimeSlotAssignments as $assignment) {
+                    $slotDetails = $additionalServiceTimeSlotDetailsByPet[(int) ($assignment['pet_id'] ?? 0)][(int) ($assignment['service_id'] ?? 0)] ?? null;
+                    if (!$slotDetails) {
+                        continue;
+                    }
+
+                    $timeSlotStart = Carbon::parse($slotDetails['date'] . ' ' . $slotDetails['start_time']);
+                    $timeSlotEnd = Carbon::parse($slotDetails['date'] . ' ' . $slotDetails['end_time']);
+
+                    if ($timeSlotEnd->gt($endDateTime) || ($endDateTime->gt($timeSlotStart) && $endDateTime->lt($timeSlotEnd))) {
+                        return back()->withErrors([
+                            'additional_service_time_slots' => 'Each additional service time slot must end before the pick up time.'
+                        ])->withInput();
+                    }
+                }
+            }
+
+            $appointment->date = $startDateTime->toDateString();
+            $appointment->start_time = $startDateTime->toTimeString();
+            $appointment->end_date = $endDateTime->toDateString();
+            $appointment->end_time = $endDateTime->toTimeString();
+
+            if (isBoardingService($service)) {
+                $appointment->estimated_price = $this->calculateFamilyBoardingEstimatedPrice(
+                    $service,
+                    $appointment,
+                    $petIds,
+                    $additionalServicesByPet,
+                    (int) $request->customer
+                );
+            }
+        }
+
+        $appointment->status = $isWaitListed ? 'wait listed' : 'checked_in';
+        $appointment->additional_service_ids = !empty($selectedAdditionalServiceIds)
+            ? implode(',', $selectedAdditionalServiceIds)
+            : null;
+        if ($request->has('appointment_notes')) {
+            $metadata['appointment_notes'] = $request->input('appointment_notes');
+        }
+
+        $appointment->metadata = !empty($metadata) ? $metadata : null;
+        $appointment->save();
+
+        // $bookingNotifier->sendConfirmation($appointment, Auth::id());
+
+        if ($appointment->status === 'checked_in') {
+            appointment_audit_log($appointment->id, 'Appointment is created.');
+        } else {
+            appointment_audit_log($appointment->id, "Appointment status changed to " . appointment_status_label($appointment->status, $appointment->service) . ".");
+        }
+
+        if (!$isWaitListed && $selectedRoom && isBoardingService($service) && $roomType === 'space') {
+            $this->markCatRoomOutOfService($selectedRoom->id);
+        }
+
+        if ($timeSlot && !is_null($timeSlot->capacity)) {
+            $timeSlot->booked_count += count($petIds);
+            if ($timeSlot->booked_count >= $timeSlot->capacity) {
+                $timeSlot->status = 'full';
+            }
+            $timeSlot->save();
+        }
+
+        if (!empty($usedSlotIds)) {
+            $timeSlots = TimeSlot::whereIn('id', $usedSlotIds)->get();
+            foreach ($timeSlots as $timeSlot) {
+                $timeSlot->booked_count += count($petIds);
+                if ($timeSlot->booked_count >= $timeSlot->capacity) {
+                    $timeSlot->status = 'full';
+                }
+                $timeSlot->save();
+            }
+        }
+
+        if ($requiresAdditionalServiceTimeSlot && !empty($additionalServiceTimeSlotAssignments)) {
+            $slotUsageCounts = collect($additionalServiceTimeSlotAssignments)
+                ->groupBy('time_slot_id')
+                ->map(fn ($rows) => $rows->count())
+                ->all();
+
+            foreach ($slotUsageCounts as $timeSlotId => $requiredCapacity) {
+                $slotModel = $additionalTimeSlotsById->get((int) $timeSlotId);
+                if (!$slotModel) {
+                    continue;
+                }
+
+                $slotModel->booked_count += $requiredCapacity;
+                if (!is_null($slotModel->capacity) && $slotModel->booked_count >= $slotModel->capacity) {
+                    $slotModel->status = 'full';
+                }
+                $slotModel->save();
+            }
+        }
+
+        return redirect()->route('appointments')->with([
+            'message' => count($petIds) > 1 ? 'Appointments created successfully.' : 'Appointment created successfully.',
+            'status' => 'success'
+        ]);
+    }
+
+    private function updateBoarding(Request $request)
+    {
+        $request->validate([
+            'appointment_notes' => 'nullable|string',
+            'boarding_start_datetime' => 'nullable|date',
+            'boarding_end_datetime' => 'nullable|date',
+            'appointment_id' => 'required|exists:appointments,id',
+            'customer' => 'required|exists:users,id',
+            'pet' => 'required|array|min:1',
+            'pet.*' => 'exists:pet_profiles,id',
+            'service' => 'required|exists:services,id',
+            'is_wait_listed' => 'nullable|boolean',
+            'staff' => 'nullable|exists:users,id',
+            'kennel' => 'nullable|exists:kennels,id',
+            'room' => 'nullable|exists:rooms,id',
+            'allow_assignment_conflict' => 'nullable|boolean',
+            'assignment_conflict_info' => 'nullable|string',
+            'date' => 'nullable|date',
+            'time_slot' => 'nullable',
+            'additional_services' => 'nullable|array',
+            'additional_services.*' => 'exists:services,id',
+            'additional_services_by_pet' => 'nullable|array',
+            'additional_services_by_pet.*' => 'nullable|array',
+            'additional_services_by_pet.*.*' => 'exists:services,id',
+            'additional_service_time_slots' => 'nullable|array',
+            'additional_service_time_slots.*' => 'nullable|exists:time_slots,id',
+            'additional_service_time_slots_by_pet' => 'nullable|array',
+            'additional_service_time_slots_by_pet.*' => 'nullable|array',
+            'additional_service_time_slots_by_pet.*.*' => 'nullable|exists:time_slots,id',
+            'family_pet_assignments' => 'nullable|array',
+            'family_pet_assignments.*.room_id' => 'nullable|exists:rooms,id',
+            'family_pet_assignments.*.kennel_id' => 'nullable|exists:kennels,id',
+        ]);
+
+        $appointment = Appointment::findOrFail($request->appointment_id);
+        $timeSlot = $request->filled('time_slot')
+            ? TimeSlot::with('service.category')->find($request->time_slot)
+            : null;
+
+        $petIds = collect($request->input('pet', []))
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn ($id) => $id > 0)
+            ->values()
+            ->all();
+
+        $metadata = is_array($appointment->metadata) ? $appointment->metadata : [];
+        $service = Service::with('category')->find($request->service);
+        $isWaitListed = $request->boolean('is_wait_listed');
+        $selectedRoom = $request->filled('room') ? Room::find($request->room) : null;
+        $roomType = $this->getRoomAssignmentType($selectedRoom);
+        $selectedKennelId = $request->filled('kennel') ? (int) $request->kennel : null;
+        $familyKennelMode = $this->getFamilyKennelMode($petIds);
+        $familyKennelAssignments = $this->buildFamilyKennelAssignmentsForMode(
+            $petIds,
+            $familyKennelMode,
+            $selectedKennelId,
+            $request->input('family_kennel_assignments', [])
+        );
+        $familyPetAssignments = $this->normalizeFamilyPetAssignmentsInput(
+            $request->input('family_pet_assignments', []),
+            $petIds
+        );
+        $kennelTypeValidation = $this->validateKennelPetTypes(
+            $familyKennelMode === 'individual'
+                ? collect($familyPetAssignments)->groupBy(fn ($assignment) => (int) ($assignment['kennel_id'] ?? 0))->map(fn ($assignments) => collect($assignments)->keys()->map(fn ($petId) => (int) $petId)->all())->all()
+                : ($selectedKennelId ? [$selectedKennelId => $petIds] : [])
+        );
+        if (!$kennelTypeValidation['valid']) {
+            return back()->withErrors(['kennel' => $kennelTypeValidation['message']])->withInput();
+        }
+        $assignmentConflict = null;
+
+        if (isBoardingService($service) && !$isWaitListed) {
+            if ($familyKennelMode !== 'individual' && !$selectedRoom) {
+                return back()->withErrors([
+                    'room' => 'Please select a room for the boarding appointment.'
+                ])->withInput();
+            }
+
+            if ($familyKennelMode === 'individual') {
+                if (count($familyPetAssignments) !== count($petIds)) {
+                    return back()->withErrors([
+                        'room' => 'Please assign a room to each selected pet.'
+                    ])->withInput();
+                }
+
+                $roomIds = collect($familyPetAssignments)
+                    ->pluck('room_id')
+                    ->map(fn ($id) => (int) $id)
+                    ->filter(fn ($id) => $id > 0)
+                    ->unique()
+                    ->values()
+                    ->all();
+
+                $roomsById = Room::whereIn('id', $roomIds)->get()->keyBy('id');
+
+                foreach ($familyPetAssignments as $petId => $assignment) {
+                    $roomId = (int) ($assignment['room_id'] ?? 0);
+                    $kennelId = (int) ($assignment['kennel_id'] ?? 0);
+                    $room = $roomsById->get($roomId);
+
+                    if (!$room) {
+                        return back()->withErrors([
+                            'room' => 'One or more selected rooms are invalid.'
+                        ])->withInput();
+                    }
+
+                    $petTypeValidation = $this->validateRoomPetTypes($room, [(int) $petId]);
+                    if ($petTypeValidation['valid'] === false) {
+                        return back()->withErrors([
+                            'room' => $petTypeValidation['message'] ?? 'This room cannot be used for one or more selected pets.'
+                        ])->withInput();
+                    }
+
+                    if ($this->getRoomAssignmentType($room) === 'standard') {
+                        if ($kennelId <= 0) {
+                            return back()->withErrors([
+                                'kennel' => 'Please assign a kennel to each selected pet in a standard room.'
+                            ])->withInput();
+                        }
+
+                        if (!in_array($kennelId, $room->kennel_id_array, true)) {
+                            return back()->withErrors([
+                                'kennel' => 'One or more kennel assignments do not belong to the selected room.'
+                            ])->withInput();
+                        }
+                    }
+                }
+
+                $familyKennelAssignments = $this->buildFamilyKennelAssignmentsFromPerPetAssignments($familyPetAssignments);
+                $primaryAssignment = $this->getPrimaryAssignmentFromPerPetAssignments($familyPetAssignments);
+                $selectedRoom = $primaryAssignment['room_id'] ? Room::find($primaryAssignment['room_id']) : null;
+                $roomType = $this->getRoomAssignmentType($selectedRoom);
+                $selectedKennelId = $primaryAssignment['kennel_id'];
+            } elseif ($roomType !== 'standard') {
+                $petTypeValidation = $this->validateRoomPetTypes($selectedRoom, $petIds);
+                if ($petTypeValidation['valid'] === false) {
+                    return back()->withErrors([
+                        'room' => $petTypeValidation['message'] ?? 'This room cannot be used for the selected pets.'
+                    ])->withInput();
+                }
+            } elseif ($familyKennelMode === 'individual') {
+                if (count($familyKennelAssignments) !== count($petIds)) {
+                    return back()->withErrors([
+                        'kennel' => 'Please assign a kennel to each selected pet.'
+                    ])->withInput();
+                }
+
+                $roomKennelIds = collect($selectedRoom->kennel_id_array)
+                    ->map(fn ($kennelId) => (int) $kennelId)
+                    ->filter(fn ($kennelId) => $kennelId > 0)
+                    ->values()
+                    ->all();
+
+                foreach ($familyKennelAssignments as $petId => $petKennelId) {
+                    if (!in_array((int) $petKennelId, $roomKennelIds, true)) {
+                        return back()->withErrors([
+                            'kennel' => 'One or more kennel assignments do not belong to the selected room.'
+                        ])->withInput();
+                    }
+                }
+            } else {
+                if (!$selectedKennelId) {
+                    return back()->withErrors([
+                        'kennel' => 'Please select a kennel for the selected room.'
+                    ])->withInput();
+                }
+
+                if (!in_array($selectedKennelId, $selectedRoom->kennel_id_array, true)) {
+                    return back()->withErrors([
+                        'kennel' => 'The selected kennel does not belong to the selected room.'
+                    ])->withInput();
+                }
+            }
+
+            if ($familyKennelMode !== 'individual' && $roomType === 'standard') {
+                if ($familyKennelMode === 'shared' && !$selectedKennelId) {
+                    return back()->withErrors([
+                        'kennel' => 'Please select a kennel for the selected room.'
+                    ])->withInput();
+                }
+            }
+
+            if ($request->filled('boarding_start_datetime') && $request->filled('boarding_end_datetime')) {
+                if ($familyKennelMode === 'individual') {
+                    $payloadConflict = $this->buildFamilyPetAssignmentConflictPayload(
+                        $familyPetAssignments,
+                        Carbon::parse($request->boarding_start_datetime),
+                        Carbon::parse($request->boarding_end_datetime),
+                        (int) $appointment->id
+                    );
+                } else {
+                    $payloadConflict = $this->buildAssignmentConflictPayload(
+                        $selectedRoom,
+                        $familyKennelMode,
+                        $familyKennelMode === 'shared' ? $selectedKennelId : null,
+                        $familyKennelAssignments,
+                        Carbon::parse($request->boarding_start_datetime),
+                        Carbon::parse($request->boarding_end_datetime),
+                        (int) $appointment->id,
+                        $petIds
+                    );
+                }
+
+                if (!empty($payloadConflict['conflict']) && empty($assignmentConflict)) {
+                    $assignmentConflict = $payloadConflict;
+                }
+
+                $isHardBlockedConflict = ($assignmentConflict['conflict_type'] ?? null) === 'kennel_blocked';
+
+                if (!empty($assignmentConflict['conflict']) && ($isHardBlockedConflict || !$request->boolean('allow_assignment_conflict'))) {
+                    return back()->withErrors([
+                        'room' => $assignmentConflict['message'] ?? 'The selected assignment is already in use during this time period.'
+                    ])->withInput();
+                }
+            }
+        }
+
+        $primaryPetId = $petIds[0] ?? null;
+
+        if (count($petIds) > 1) {
+            $metadata['family_pet_ids'] = $petIds;
+        } else {
+            unset($metadata['family_pet_ids']);
+        }
+
+        $additionalServicesByPet = $this->normalizeAdditionalServicesByPetInput(
+            $petIds,
+            $request->input('additional_services_by_pet', []),
+            $request->input('additional_services', [])
+        );
+
+        if (count($petIds) > 1 || !empty(collect($additionalServicesByPet)->flatten()->all())) {
+            $metadata['additional_services_by_pet'] = $additionalServicesByPet;
+        } else {
+            unset($metadata['additional_services_by_pet']);
+        }
+
+        $selectedAdditionalServiceIds = collect($additionalServicesByPet)
+            ->flatten()
+            ->map(fn ($serviceId) => (int) $serviceId)
+            ->filter(fn ($serviceId) => $serviceId > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        $selectedAdditionalServices = !empty($selectedAdditionalServiceIds)
+            ? Service::with('category')->whereIn('id', $selectedAdditionalServiceIds)->get()
+            : collect([]);
+
+        $hasNonGroomingAdditionalService = $selectedAdditionalServices->contains(function ($additionalService) {
+            return !isGroomingService($additionalService);
+        });
+
+        if ($hasNonGroomingAdditionalService) {
+            return back()->withErrors([
+                'additional_services' => 'Additional services must be grooming services.'
+            ])->withInput();
+        }
+
+        $requiresBoardingAdditionalService = isBoardingService($service);
+
+        $requiresAdditionalServiceTimeSlot = $requiresBoardingAdditionalService && $selectedAdditionalServices->isNotEmpty();
+
+        $requiredAdditionalServicePairCount = collect($additionalServicesByPet)
+            ->map(function ($serviceIds) {
+                if (!is_array($serviceIds)) {
+                    return 0;
+                }
+
+                return collect($serviceIds)
+                    ->map(fn ($serviceId) => (int) $serviceId)
+                    ->filter(fn ($serviceId) => $serviceId > 0)
+                    ->unique()
+                    ->count();
+            })
+            ->sum();
+
+        $additionalServiceTimeSlotAssignments = $this->normalizeAdditionalServiceTimeSlotsByPetInput(
+            $request->input('additional_service_time_slots_by_pet', []),
+            $additionalServicesByPet,
+            $request->filled('time_slot') ? (int) $request->time_slot : null,
+            $request->input('additional_service_time_slots', [])
+        );
+
+        $additionalTimeSlotIds = collect($additionalServiceTimeSlotAssignments)
+            ->pluck('time_slot_id')
+            ->map(fn ($slotId) => (int) $slotId)
+            ->filter(fn ($slotId) => $slotId > 0)
+            ->unique()
+            ->values();
+
+        $additionalTimeSlotsById = $additionalTimeSlotIds->isNotEmpty()
+            ? TimeSlot::with('service.category')->whereIn('id', $additionalTimeSlotIds->all())->get()->keyBy('id')
+            : collect();
+
+        $additionalServiceTimeSlotDetailsByPet = [];
+        $additionalServiceTimeSlotDetailsByService = [];
+        foreach ($additionalServiceTimeSlotAssignments as $assignment) {
+            $selectedPetId = (int) ($assignment['pet_id'] ?? 0);
+            $selectedAdditionalServiceId = (int) ($assignment['service_id'] ?? 0);
+            $selectedTimeSlotId = (int) ($assignment['time_slot_id'] ?? 0);
+
+            $timeSlotForService = $additionalTimeSlotsById->get($selectedTimeSlotId);
+            if (!$timeSlotForService || (int) $timeSlotForService->service_id !== $selectedAdditionalServiceId) {
+                return back()->withErrors([
+                    'additional_service_time_slots' => 'Please select a valid time slot for each additional service.'
+                ])->withInput();
+            }
+
+            $slotDetails = [
+                'time_slot_id' => (int) $timeSlotForService->id,
+                'service_id' => (int) $timeSlotForService->service_id,
+                'date' => $timeSlotForService->date,
+                'start_time' => $timeSlotForService->start_time,
+                'end_time' => $timeSlotForService->end_time,
+            ];
+
+            $additionalServiceTimeSlotDetailsByPet[$selectedPetId][$selectedAdditionalServiceId] = $slotDetails;
+
+            if (!isset($additionalServiceTimeSlotDetailsByService[$selectedAdditionalServiceId])) {
+                $additionalServiceTimeSlotDetailsByService[$selectedAdditionalServiceId] = $slotDetails;
+            }
+        }
+
+        if ($requiresAdditionalServiceTimeSlot && count($additionalServiceTimeSlotAssignments) !== (int) $requiredAdditionalServicePairCount) {
+            return back()->withErrors([
+                'additional_service_time_slots' => 'Please select a valid time slot for each additional service.'
+            ])->withInput();
+        }
+
+        if ($selectedRoom && !$isWaitListed) {
+            $metadata['room_id'] = $selectedRoom->id;
+            $metadata['room_name'] = $selectedRoom->name;
+        } else {
+            unset($metadata['room_id'], $metadata['room_name']);
+        }
+
+        if ($requiresAdditionalServiceTimeSlot && !empty($additionalServiceTimeSlotDetailsByPet)) {
+            $metadata['additional_service_time_slots_by_pet'] = $additionalServiceTimeSlotDetailsByPet;
+            $metadata['additional_service_time_slots'] = $additionalServiceTimeSlotDetailsByService;
+
+            $firstAdditionalServiceTimeSlot = collect($additionalServiceTimeSlotDetailsByService)->first();
+            if ($firstAdditionalServiceTimeSlot) {
+                $metadata['additional_service_time_slot_id'] = $firstAdditionalServiceTimeSlot['time_slot_id'] ?? null;
+                $metadata['additional_service_time_slot_service_id'] = $firstAdditionalServiceTimeSlot['service_id'] ?? null;
+                $metadata['additional_service_time_slot_date'] = $firstAdditionalServiceTimeSlot['date'] ?? null;
+                $metadata['additional_service_time_slot_start_time'] = $firstAdditionalServiceTimeSlot['start_time'] ?? null;
+                $metadata['additional_service_time_slot_end_time'] = $firstAdditionalServiceTimeSlot['end_time'] ?? null;
+            }
+        } else {
+            unset(
+                $metadata['additional_service_time_slots_by_pet'],
+                $metadata['additional_service_time_slots'],
+                $metadata['additional_service_time_slot_id'],
+                $metadata['additional_service_time_slot_service_id'],
+                $metadata['additional_service_time_slot_date'],
+                $metadata['additional_service_time_slot_start_time'],
+                $metadata['additional_service_time_slot_end_time']
+            );
+        }
+
+        if ($selectedRoom && !$isWaitListed) {
+            $metadata['assignment_room_id'] = $selectedRoom->id;
+            $metadata['assignment_room_name'] = $selectedRoom->name;
+            $metadata['assignment_room_type'] = $roomType;
+            $assignmentKennelId = $this->getAssignmentKennelIdForMode($familyKennelMode, $selectedKennelId, $familyKennelAssignments);
+
+            if ($roomType === 'standard' && $assignmentKennelId) {
+                $metadata['assignment_kennel_id'] = $assignmentKennelId;
+                $metadata['assignment_kennel_name'] = optional(Kennel::find($assignmentKennelId))->name;
+            } else {
+                unset($metadata['assignment_kennel_id'], $metadata['assignment_kennel_name']);
+            }
+
+            $metadata['family_kennel_mode'] = $familyKennelMode;
+            if (!empty($familyKennelAssignments)) {
+                $metadata['family_kennel_assignments'] = $familyKennelAssignments;
+            } else {
+                unset($metadata['family_kennel_assignments']);
+            }
+
+            if (!empty($familyPetAssignments)) {
+                $metadata['family_pet_assignments'] = $familyPetAssignments;
+            } else {
+                unset($metadata['family_pet_assignments']);
+            }
+
+            if (!empty($assignmentConflict['conflict'])) {
+                $metadata['assignment_conflict'] = true;
+                $metadata['assignment_conflict_type'] = $assignmentConflict['conflict_type'] ?? null;
+                $metadata['assignment_conflict_message'] = $assignmentConflict['message'] ?? null;
+                $metadata['assignment_conflict_occupants'] = $assignmentConflict['current_occupants'] ?? [];
+                $metadata['warning_codes'] = array_values(array_filter(
+                    is_array($assignmentConflict['warning_codes'] ?? null)
+                        ? $assignmentConflict['warning_codes']
+                        : []
+                ));
+                if ($request->boolean('allow_assignment_conflict')) {
+                    $metadata['was_allowed_with_conflict'] = true;
+                }
+            } else {
+                unset(
+                    $metadata['assignment_conflict'],
+                    $metadata['assignment_conflict_type'],
+                    $metadata['assignment_conflict_message'],
+                    $metadata['assignment_conflict_occupants'],
+                    $metadata['warning_codes'],
+                    $metadata['was_allowed_with_conflict']
+                );
+            }
+        } else {
+            unset(
+                $metadata['assignment_room_id'],
+                $metadata['assignment_room_name'],
+                $metadata['assignment_room_type'],
+                $metadata['assignment_kennel_id'],
+                $metadata['assignment_kennel_name'],
+                $metadata['family_kennel_mode'],
+                $metadata['family_kennel_assignments'],
+                $metadata['family_pet_assignments'],
+                $metadata['assignment_conflict'],
+                $metadata['assignment_conflict_type'],
+                $metadata['assignment_conflict_message'],
+                $metadata['assignment_conflict_occupants'],
+                $metadata['warning_codes'],
+                $metadata['was_allowed_with_conflict']
+            );
+        }
+
+        $oldStatus = $appointment->status;
+        $oldKennelId = $appointment->kennel_id;
+        $oldRoomId = $appointment->cat_room_id;
+        $newKennelId = !$isWaitListed && isBoardingService($service) && $roomType === 'standard'
+            ? $this->getAssignmentKennelIdForMode($familyKennelMode, $selectedKennelId, $familyKennelAssignments)
+            : null;
+        $newRoomId = !$isWaitListed && isBoardingService($service) && $selectedRoom ? (int) $selectedRoom->id : null;
+
+        $appointment->customer_id = $request->customer;
+        $appointment->pet_id = $primaryPetId;
+        $appointment->service_id = $request->service;
+        $appointment->kennel_id = $newKennelId;
+        $appointment->cat_room_id = $newRoomId;
+        $appointment->additional_service_ids = !empty($selectedAdditionalServiceIds)
+            ? implode(',', $selectedAdditionalServiceIds)
+            : null;
+
+        if ($request->filled('staff')) {
+            $appointment->staff_id = $request->staff;
+        } else {
+            $appointment->staff_id = null;
+        }
+
+        if (isBoardingService($service) && $request->filled('boarding_start_datetime') && $request->filled('boarding_end_datetime')) {
+            $startDateTime = Carbon::parse($request->boarding_start_datetime);
+            $endDateTime = Carbon::parse($request->boarding_end_datetime);
+
+            $dropOffMinutes = ((int) $startDateTime->format('H') * 60) + (int) $startDateTime->format('i');
+            $businessStartMinutes = (7 * 60) + 30;
+            $businessEndMinutes = (17 * 60) + 30;
+            $isEarlyDropOff = $dropOffMinutes < $businessStartMinutes;
+            $isLateDropOff = $dropOffMinutes > $businessEndMinutes;
+            $canCreateEarlyDropOff = Auth::user()
+                ? Auth::user()->roles()->whereRaw('LOWER(title) = ?', ['owner'])->exists()
+                : false;
+
+            if (($isEarlyDropOff && !$canCreateEarlyDropOff) || $isLateDropOff) {
+                return back()->withErrors([
+                    'boarding_start_datetime' => 'Drop-off time must be between 7:30 AM and 5:30 PM.'
+                ])->withInput();
+            }
+
+            $pickupMinutes = ((int) $endDateTime->format('H') * 60) + (int) $endDateTime->format('i');
+            if ($pickupMinutes < (7 * 60) + 30 || $pickupMinutes > (17 * 60) + 30) {
+                return back()->withErrors([
+                    'boarding_end_datetime' => 'Pick-up time must be between 7:30 AM and 5:30 PM.'
+                ])->withInput();
+            }
+
+            if ($requiresAdditionalServiceTimeSlot) {
+                foreach ($additionalServiceTimeSlotAssignments as $assignment) {
+                    $slotDetails = $additionalServiceTimeSlotDetailsByPet[(int) ($assignment['pet_id'] ?? 0)][(int) ($assignment['service_id'] ?? 0)] ?? null;
+                    if (!$slotDetails) {
+                        continue;
+                    }
+
+                    $timeSlotStart = Carbon::parse($slotDetails['date'] . ' ' . $slotDetails['start_time']);
+                    $timeSlotEnd = Carbon::parse($slotDetails['date'] . ' ' . $slotDetails['end_time']);
+
+                    if ($timeSlotEnd->gt($endDateTime) || ($endDateTime->gt($timeSlotStart) && $endDateTime->lt($timeSlotEnd))) {
+                        return back()->withErrors([
+                            'additional_service_time_slots' => 'Each additional service time slot must end before the pick up time.'
+                        ])->withInput();
+                    }
+                }
+            }
+
+            $appointment->date = $startDateTime->toDateString();
+            $appointment->start_time = $startDateTime->toTimeString();
+            $appointment->end_date = $endDateTime->toDateString();
+            $appointment->end_time = $endDateTime->toTimeString();
+        } elseif ($timeSlot) {
+            $appointment->date = $timeSlot->date;
+            $appointment->start_time = $timeSlot->start_time;
+            $appointment->end_time = $timeSlot->end_time;
+
+            if (!isBoardingService($service)) {
+                $appointment->end_date = null;
+            }
+        }
+
+        if (isBoardingService($service) && !empty($petIds)) {
+            $appointment->estimated_price = $this->calculateFamilyBoardingEstimatedPrice(
+                $service,
+                $appointment,
+                $petIds,
+                $additionalServicesByPet,
+                (int) $request->customer
+            );
+        }
+
+        if ($request->has('appointment_notes')) {
+            $metadata['appointment_notes'] = $request->input('appointment_notes');
+        }
+
+        $appointment->metadata = !empty($metadata) ? $metadata : null;
+
+        if ($request->filled('status')) {
+            $newStatus = $request->status;
+            if (in_array($newStatus, ['cancelled', 'no_show'])) {
+                $appointment->status = $newStatus;
+                if ($oldStatus !== $newStatus) {
+                    appointment_audit_log($appointment->id, "Appointment status changed to " . appointment_status_label($newStatus, $appointment->service) . ".");
+                    $this->saveCancellationRecord($appointment, $newStatus);
+                    $this->releaseTimeSlots($appointment);
+                }
+            }
+        }
+
+        if ($isWaitListed) {
+            $appointment->status = 'wait listed';
+        } elseif ($oldStatus === 'wait listed' && !in_array($appointment->status, ['cancelled', 'no_show'], true)) {
+            $appointment->status = 'checked_in';
+        }
+
+        $isActiveBoardingAppointment = isBoardingService($service)
+            && !in_array($appointment->status, ['cancelled', 'no_show']);
+
+        if ($oldRoomId && $oldRoomId !== $newRoomId) {
+            $this->releaseCatRoomIfUnused($oldRoomId, $appointment->id);
+        }
+
+        if ($newRoomId && $isActiveBoardingAppointment && $roomType === 'space') {
+            $this->markCatRoomOutOfService($newRoomId);
+        }
+
+        if (!$isActiveBoardingAppointment && $oldRoomId && $oldRoomId === $newRoomId) {
+            $this->releaseCatRoomIfUnused($oldRoomId, $appointment->id);
+        }
+
+        $appointment->save();
+        if ($oldStatus !== $appointment->status && !in_array($appointment->status, ['cancelled', 'no_show'])) {
+            $label = $appointment->status === 'checked_in' ? "Appointment is created." : "Appointment status changed to " . appointment_status_label($appointment->status, $appointment->service) . ".";
+            appointment_audit_log($appointment->id, $label);
+        } elseif ($oldStatus === $appointment->status) {
+            appointment_audit_log($appointment->id, "Appointment updated.");
+        }
+
+        if ($appointment->status === 'cancelled' && $oldStatus !== 'cancelled') {
+            // $bookingNotifier->sendCancellation($appointment, Auth::id());
+        }
+
+        return redirect()->route('appointments')->with([
+            'message' => 'Appointment updated successfully.',
+            'status' => 'success'
+        ]);
+    }
+
+    private function getBoardingValidationInfo(Request $request)
+    {
+        $request->validate([
+            'pet_id' => 'required_without:pet_ids|nullable|exists:pet_profiles,id',
+            'pet_ids' => 'required_without:pet_id|nullable|array|min:1',
+            'pet_ids.*' => 'exists:pet_profiles,id',
+            'service_id' => 'required|exists:services,id',
+            'package_id' => 'nullable|exists:packages,id',
+            'additional_services' => 'nullable|array',
+            'additional_services.*' => 'exists:services,id',
+            'additional_services_by_pet' => 'nullable|array',
+            'additional_services_by_pet.*' => 'nullable|array',
+            'additional_services_by_pet.*.*' => 'exists:services,id',
+            'additional_service_time_slots' => 'nullable|array',
+            'additional_service_time_slots.*' => 'nullable|exists:time_slots,id',
+            'additional_service_time_slots_by_pet' => 'nullable|array',
+            'additional_service_time_slots_by_pet.*' => 'nullable|array',
+            'additional_service_time_slots_by_pet.*.*' => 'nullable|exists:time_slots,id',
+        ]);
+
+        $capacity  = Kennel::count() + $this->spaceRoomsQuery()->count();
+        $occupiedKennelCount = Appointment::whereNotNull('kennel_id')
+            ->whereIn('status', appointment_occupying_statuses())
+            ->whereHas('service.category', fn ($q) => $q->whereRaw('LOWER(name) LIKE ?', ['%boarding%']))
+            ->distinct('kennel_id')
+            ->count('kennel_id');
+        $occupiedSpaceRoomCount = Appointment::whereNotNull('cat_room_id')
+            ->whereIn('status', appointment_occupying_statuses())
+            ->whereHas('service.category', fn ($q) => $q->whereRaw('LOWER(name) LIKE ?', ['%boarding%']))
+            ->distinct('cat_room_id')
+            ->count('cat_room_id');
+        $occupied = $occupiedKennelCount + $occupiedSpaceRoomCount;
+        // Admin adaptation: guard against a facility with no kennels/space rooms configured yet.
+        $available_status = $capacity > 0 ? ($occupied / $capacity < 0.5? true : false) : true;
+
+        $selectedPetIds = collect($request->input('pet_ids', []))
+            ->filter(fn ($id) => !empty($id))
+            ->map(fn ($id) => intval($id))
+            ->unique()
+            ->values();
+
+        if ($selectedPetIds->isEmpty() && $request->filled('pet_id')) {
+            $selectedPetIds = collect([(int) $request->pet_id]);
+        }
+
+        $pets = PetProfile::with(['vaccinations', 'owner'])
+            ->whereIn('id', $selectedPetIds)
+            ->get()
+            ->keyBy('id');
+
+        $primaryPet = $pets->get($selectedPetIds->first());
+
+        $service = Service::find($request->service_id);
+        $additionalServiceIds = collect($request->input('additional_services', []))
+            ->merge(collect($request->input('additional_services_by_pet', []))->flatten(1))
+            ->filter(fn ($id) => !empty($id))
+            ->map(fn ($id) => intval($id))
+            ->unique()
+            ->values();
+
+        $chauffeurSelectedInAdditionalServices = false;
+        $ownerAddressValid = true;
+        $facilityAddressValid = true;
+
+        if ($additionalServiceIds->isNotEmpty()) {
+            $additionalServices = Service::with('category')
+                ->whereIn('id', $additionalServiceIds)
+                ->get();
+
+            $chauffeurSelectedInAdditionalServices = $additionalServices->contains(function ($additionalService) {
+                return isChauffeurService($additionalService);
+            });
+        }
+
+        // Required vaccine validation by pet type
+        $vaccineStatus = 'approved';
+        $vaccineMessages = [];
+        $hasExpired = false;
+        $hasMissing = false;
+
+        foreach ($selectedPetIds as $petId) {
+            $pet = $pets->get($petId);
+            if (!$pet) {
+                continue;
+            }
+
+            $vaccineValidation = $this->validatePetVaccines($pet);
+            if ($vaccineValidation['valid']) {
+                continue;
+            }
+
+            if (($vaccineValidation['status'] ?? null) === 'expired') {
+                $hasExpired = true;
+            } else {
+                $hasMissing = true;
+            }
+
+            $petMessages = $vaccineValidation['messages'] ?? [];
+            if (empty($petMessages) && !empty($vaccineValidation['message'])) {
+                $petMessages = [$vaccineValidation['message']];
+            }
+
+            foreach ($petMessages as $message) {
+                $vaccineMessages[] = $pet->name . ': ' . $message;
+            }
+        }
+
+        if ($hasMissing) {
+            $vaccineStatus = false;
+        } elseif ($hasExpired) {
+            $vaccineStatus = 'expired';
+        }
+
+        $vaccineMessage = $vaccineMessages[0] ?? null;
+
+        $questionnaireRequired = optional(optional($primaryPet)->owner)->requiresAppointmentQuestionnaire() ?? true;
+        $questionnaireStatus = true;
+
+        if ($questionnaireRequired) {
+            $questionnaire = Questionnaire::where('pet_id', optional($primaryPet)->id)
+                ->where('user_id', optional($primaryPet)->user_id)
+                ->where('service_category_id', $service->category->id)
+                ->orderBy('created_at', 'desc')
+                ->first();
+            $questionnaireStatus = $questionnaire && $questionnaire->status === 'approved';
+        }
+
+        // Pet Owner profile status
+        $ownerStatus = $pets->every(function ($pet) {
+            return (bool) optional($pet->owner)->status;
+        });
+
+        return response()->json([
+            'owner_status' => $ownerStatus,
+            'vaccine_status' => $vaccineStatus,
+            'vaccine_message' => $vaccineMessage,
+            'vaccine_messages' => $vaccineMessages,
+            'questionnaire_required' => $questionnaireRequired,
+            'questionnaire_status' => $questionnaireStatus,
+            'available_status' => $available_status,
+        ]);
+    }
+
+    private function getFamilyKennelMode(array $petIds): string
+    {
+        $pets = $this->collectPetsByIds($petIds);
+
+        if ($pets->isEmpty()) {
+            return 'shared';
+        }
+
+        if ($pets->count() <= 1) {
+            return 'shared';
+        }
+
+        $hasNonSmall = $pets->contains(function ($pet) {
+            return !$this->isSmallPetSize($pet['size'] ?? 'medium');
+        });
+
+        return $hasNonSmall ? 'individual' : 'shared';
+    }
+
+    private function normalizeFamilyKennelAssignmentsInput($rawAssignments, array $petIds): array
+    {
+        $normalizedPetIds = collect($petIds)
+            ->map(fn ($petId) => (int) $petId)
+            ->filter(fn ($petId) => $petId > 0)
+            ->values();
+
+        $normalizedAssignments = [];
+
+        if (!is_array($rawAssignments)) {
+            return [];
+        }
+
+        foreach ($rawAssignments as $petId => $kennelId) {
+            $normalizedPetId = (int) $petId;
+            $normalizedKennelId = is_array($kennelId)
+                ? (int) ($kennelId['kennel_id'] ?? 0)
+                : (int) $kennelId;
+
+            if (
+                $normalizedPetId <= 0
+                || $normalizedKennelId <= 0
+                || !$normalizedPetIds->contains($normalizedPetId)
+            ) {
+                continue;
+            }
+
+            $normalizedAssignments[$normalizedPetId] = $normalizedKennelId;
+        }
+
+        ksort($normalizedAssignments);
+
+        return $normalizedAssignments;
+    }
+
+    private function normalizeFamilyPetAssignmentsInput($rawAssignments, array $petIds): array
+    {
+        $normalizedPetIds = collect($petIds)
+            ->map(fn ($petId) => (int) $petId)
+            ->filter(fn ($petId) => $petId > 0)
+            ->values();
+
+        if (!is_array($rawAssignments)) {
+            return [];
+        }
+
+        $normalizedAssignments = [];
+
+        foreach ($rawAssignments as $petId => $assignment) {
+            $normalizedPetId = (int) $petId;
+
+            if ($normalizedPetId <= 0 || !$normalizedPetIds->contains($normalizedPetId)) {
+                continue;
+            }
+
+            $roomId = is_array($assignment)
+                ? (int) ($assignment['room_id'] ?? 0)
+                : 0;
+            $kennelId = is_array($assignment)
+                ? (int) ($assignment['kennel_id'] ?? 0)
+                : 0;
+
+            if ($roomId <= 0) {
+                continue;
+            }
+
+            $normalizedAssignments[$normalizedPetId] = [
+                'room_id' => $roomId,
+                'kennel_id' => $kennelId > 0 ? $kennelId : null,
+            ];
+        }
+
+        ksort($normalizedAssignments);
+
+        return $normalizedAssignments;
+    }
+
+    private function buildFamilyKennelAssignmentsFromPerPetAssignments(array $familyPetAssignments): array
+    {
+        return collect($familyPetAssignments)
+            ->mapWithKeys(function ($assignment, $petId) {
+                $kennelId = (int) ($assignment['kennel_id'] ?? 0);
+
+                if ($kennelId <= 0) {
+                    return [];
+                }
+
+                return [(int) $petId => $kennelId];
+            })
+            ->all();
+    }
+
+    private function getPrimaryAssignmentFromPerPetAssignments(array $familyPetAssignments): array
+    {
+        $primary = collect($familyPetAssignments)
+            ->sortKeys()
+            ->first();
+
+        if (!is_array($primary)) {
+            return [
+                'room_id' => null,
+                'kennel_id' => null,
+            ];
+        }
+
+        return [
+            'room_id' => (int) ($primary['room_id'] ?? 0) ?: null,
+            'kennel_id' => (int) ($primary['kennel_id'] ?? 0) ?: null,
+        ];
+    }
+
+    private function buildFamilyKennelAssignmentsForMode(array $petIds, string $familyKennelMode, ?int $sharedKennelId, $rawAssignments = []): array
+    {
+        $normalizedPetIds = collect($petIds)
+            ->map(fn ($petId) => (int) $petId)
+            ->filter(fn ($petId) => $petId > 0)
+            ->values();
+
+        if ($normalizedPetIds->isEmpty()) {
+            return [];
+        }
+
+        if ($familyKennelMode === 'shared') {
+            if (!$sharedKennelId) {
+                return [];
+            }
+
+            return $normalizedPetIds->mapWithKeys(function ($petId) use ($sharedKennelId) {
+                return [(int) $petId => (int) $sharedKennelId];
+            })->all();
+        }
+
+        return $this->normalizeFamilyKennelAssignmentsInput($rawAssignments, $normalizedPetIds->all());
+    }
+
+    private function buildFamilyKennelConflictPayload(Room $room, array $familyKennelAssignments, Carbon $newStart, Carbon $newEnd, ?int $excludeAppointmentId = null): array
+    {
+        $normalizedAssignments = collect($familyKennelAssignments)
+            ->map(function ($kennelId, $petId) {
+                return [
+                    'pet_id' => (int) $petId,
+                    'kennel_id' => (int) $kennelId,
+                ];
+            })
+            ->filter(function ($assignment) {
+                return $assignment['pet_id'] > 0 && $assignment['kennel_id'] > 0;
+            })
+            ->values();
+
+        if ($normalizedAssignments->isEmpty()) {
+            return ['conflict' => false];
+        }
+
+        $petIds = $normalizedAssignments->pluck('pet_id')->all();
+        $petsById = $this->collectPetsByIds($petIds)->keyBy('id');
+
+        $duplicateKennelGroups = $normalizedAssignments
+            ->groupBy('kennel_id')
+            ->filter(function ($group) {
+                return $group->count() > 1;
+            });
+
+        if ($duplicateKennelGroups->isNotEmpty()) {
+            $sharedKennelId = (int) $duplicateKennelGroups->keys()->first();
+            $duplicateAssignments = $duplicateKennelGroups->first();
+            $duplicatePetIds = $duplicateAssignments->pluck('pet_id')->map(fn ($petId) => (int) $petId)->values()->all();
+            $duplicatePets = collect($duplicatePetIds)
+                ->map(fn ($petId) => $petsById->get($petId))
+                ->filter()
+                ->values();
+            $kennel = Kennel::find($sharedKennelId);
+            $kennelName = $kennel ? $kennel->name : 'the selected kennel';
+            $petNames = $duplicatePets->pluck('name')->filter()->values()->all();
+
+            return [
+                'conflict' => true,
+                'conflict_type' => 'size_sharing',
+                'warning_codes' => ['size_sharing'],
+                'message' => 'Medium, large, and xlarge dogs must have their own kennel. The selected pets would share <strong>"' . $kennelName . '"</strong>.<br><br>Please change the kennel assignment or continue anyway.',
+                'current_occupants' => [],
+                'room_name' => $room->name,
+                'kennel_name' => $kennelName,
+                'selected_pet_sizes' => $duplicatePets->pluck('size')->values()->all(),
+                'selected_pet_names' => $petNames,
+                'duplicate_pet_ids' => $duplicatePetIds,
+            ];
+        }
+
+        foreach ($normalizedAssignments->groupBy('kennel_id') as $kennelId => $petAssignments) {
+            $petIdsForKennel = $petAssignments->pluck('pet_id')->map(fn ($petId) => (int) $petId)->values()->all();
+            $conflict = $this->buildKennelConflictPayload($room, (int) $kennelId, $newStart, $newEnd, $excludeAppointmentId, $petIdsForKennel);
+
+            if (!empty($conflict['conflict'])) {
+                return $conflict;
+            }
+        }
+
+        return [
+            'conflict' => false,
+            'room_name' => $room->name,
+        ];
+    }
+
+    private function buildFamilyPetAssignmentConflictPayload(array $familyPetAssignments, Carbon $newStart, Carbon $newEnd, ?int $excludeAppointmentId = null): array
+    {
+        $normalizedAssignments = collect($familyPetAssignments)
+            ->map(function ($assignment, $petId) {
+                return [
+                    'pet_id' => (int) $petId,
+                    'room_id' => (int) ($assignment['room_id'] ?? 0),
+                    'kennel_id' => (int) ($assignment['kennel_id'] ?? 0),
+                ];
+            })
+            ->filter(function ($assignment) {
+                return $assignment['pet_id'] > 0 && $assignment['room_id'] > 0;
+            })
+            ->values();
+
+        if ($normalizedAssignments->isEmpty()) {
+            return ['conflict' => false];
+        }
+
+        $roomIds = $normalizedAssignments->pluck('room_id')->unique()->values()->all();
+        $roomsById = Room::whereIn('id', $roomIds)->get()->keyBy('id');
+        $petIds = $normalizedAssignments->pluck('pet_id')->unique()->values()->all();
+        $petsById = $this->collectPetsByIds($petIds)->keyBy('id');
+
+        foreach ($normalizedAssignments as $assignment) {
+            $petId = (int) $assignment['pet_id'];
+            $roomId = (int) $assignment['room_id'];
+            $kennelId = (int) $assignment['kennel_id'];
+            $room = $roomsById->get($roomId);
+
+            if (!$room) {
+                return [
+                    'conflict' => true,
+                    'conflict_type' => 'room',
+                    'message' => 'One or more selected rooms are invalid.',
+                ];
+            }
+
+            $petTypeValidation = $this->validateRoomPetTypes($room, [$petId]);
+            if ($petTypeValidation['valid'] === false) {
+                return [
+                    'conflict' => true,
+                    'conflict_type' => 'pet_type',
+                    'message' => $petTypeValidation['message'] ?? 'The selected room does not support this pet.',
+                    'room_name' => $room->name,
+                ];
+            }
+
+            $roomType = $this->getRoomAssignmentType($room);
+
+            if ($roomType === 'standard') {
+                if ($kennelId <= 0) {
+                    return [
+                        'conflict' => true,
+                        'conflict_type' => 'kennel',
+                        'message' => 'Please choose a kennel for each pet assigned to a standard room.',
+                        'room_name' => $room->name,
+                    ];
+                }
+
+                if (!in_array($kennelId, $room->kennel_id_array, true)) {
+                    return [
+                        'conflict' => true,
+                        'conflict_type' => 'kennel',
+                        'message' => 'One or more selected kennels do not belong to the assigned room.',
+                        'room_name' => $room->name,
+                    ];
+                }
+
+                $kennelTypeValidation = $this->validateKennelPetTypes([$kennelId => [$petId]]);
+                if (!$kennelTypeValidation['valid']) {
+                    return [
+                        'conflict' => true,
+                        'conflict_type' => 'kennel_type',
+                        'message' => $kennelTypeValidation['message'],
+                        'room_name' => $room->name,
+                    ];
+                }
+            }
+        }
+
+        $duplicateKennelGroups = $normalizedAssignments
+            ->filter(fn ($assignment) => (int) $assignment['kennel_id'] > 0)
+            ->groupBy('kennel_id')
+            ->filter(fn ($group) => $group->count() > 1);
+
+        if ($duplicateKennelGroups->isNotEmpty()) {
+            $sharedKennelId = (int) $duplicateKennelGroups->keys()->first();
+            $duplicateAssignments = $duplicateKennelGroups->first();
+            $duplicatePetIds = $duplicateAssignments->pluck('pet_id')->map(fn ($id) => (int) $id)->values()->all();
+            $duplicatePets = collect($duplicatePetIds)
+                ->map(fn ($petId) => $petsById->get($petId))
+                ->filter()
+                ->values();
+            $kennel = Kennel::find($sharedKennelId);
+
+            return [
+                'conflict' => true,
+                'conflict_type' => 'size_sharing',
+                'warning_codes' => ['size_sharing'],
+                'message' => 'Medium, large, and xlarge dogs must have their own kennel. The selected pets would share <strong>"' . ($kennel?->name ?? 'the selected kennel') . '"</strong>.<br><br>Please change the kennel assignment or continue anyway.',
+                'selected_pet_sizes' => $duplicatePets->pluck('size')->values()->all(),
+                'selected_pet_names' => $duplicatePets->pluck('name')->values()->all(),
+                'duplicate_pet_ids' => $duplicatePetIds,
+            ];
+        }
+
+        foreach ($normalizedAssignments as $assignment) {
+            $room = $roomsById->get((int) $assignment['room_id']);
+            if (!$room) {
+                continue;
+            }
+
+            $roomType = $this->getRoomAssignmentType($room);
+
+            if ($roomType === 'space') {
+                $roomConflict = $this->buildSpaceRoomConflictPayload($room, $newStart, $newEnd, $excludeAppointmentId);
+                if (!empty($roomConflict['conflict'])) {
+                    return $roomConflict;
+                }
+                continue;
+            }
+
+            $kennelId = (int) ($assignment['kennel_id'] ?? 0);
+            if ($kennelId <= 0) {
+                continue;
+            }
+
+            $kennelConflict = $this->buildKennelConflictPayload(
+                $room,
+                $kennelId,
+                $newStart,
+                $newEnd,
+                $excludeAppointmentId,
+                [(int) $assignment['pet_id']]
+            );
+
+            if (!empty($kennelConflict['conflict'])) {
+                return $kennelConflict;
+            }
+        }
+
+        return ['conflict' => false];
+    }
+
+    private function buildBoardingAssignmentConflictPayload(Room $room, string $familyKennelMode, ?int $sharedKennelId, array $familyKennelAssignments, Carbon $newStart, Carbon $newEnd, ?int $excludeAppointmentId = null, array $petIds = []): array
+    {
+        $roomType = $this->getRoomAssignmentType($room);
+
+        if ($roomType === 'space') {
+            return $this->buildSpaceRoomConflictPayload($room, $newStart, $newEnd, $excludeAppointmentId);
+        }
+
+        if ($familyKennelMode === 'individual') {
+            return $this->buildFamilyKennelConflictPayload($room, $familyKennelAssignments, $newStart, $newEnd, $excludeAppointmentId);
+        }
+
+        return $this->buildKennelConflictPayload($room, $sharedKennelId, $newStart, $newEnd, $excludeAppointmentId, $petIds);
+    }
+
+    private function getAssignmentKennelIdForMode(string $familyKennelMode, ?int $sharedKennelId, array $familyKennelAssignments): ?int
+    {
+        if ($familyKennelMode === 'shared') {
+            return $sharedKennelId;
+        }
+
+        return (int) (collect($familyKennelAssignments)->first() ?? 0) ?: null;
+    }
+
+    public function validateAssignment(Request $request)
+    {
+        $request->validate([
+            'room_id' => 'nullable|exists:rooms,id',
+            'kennel_id' => 'nullable|exists:kennels,id',
+            'pet_ids' => 'nullable|array',
+            'pet_ids.*' => 'exists:pet_profiles,id',
+            'family_kennel_assignments' => 'nullable|array',
+            'family_kennel_assignments.*' => 'nullable|exists:kennels,id',
+            'family_pet_assignments' => 'nullable|array',
+            'family_pet_assignments.*.room_id' => 'nullable|exists:rooms,id',
+            'family_pet_assignments.*.kennel_id' => 'nullable|exists:kennels,id',
+            'boarding_start_datetime' => 'required|date',
+            'boarding_end_datetime' => 'required|date|after:boarding_start_datetime',
+            'appointment_id' => 'nullable|exists:appointments,id',
+        ]);
+
+        $startDateTime = Carbon::parse($request->boarding_start_datetime);
+        $endDateTime = Carbon::parse($request->boarding_end_datetime);
+        $excludeAppointmentId = $request->filled('appointment_id') ? (int) $request->appointment_id : null;
+        $kennelId = $request->filled('kennel_id') ? (int) $request->kennel_id : null;
+        $petIds = collect($request->input('pet_ids', []))
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn ($id) => $id > 0)
+            ->values()
+            ->all();
+        $familyKennelMode = $this->getFamilyKennelMode($petIds);
+
+        if ($familyKennelMode === 'individual') {
+            $familyPetAssignments = $this->normalizeFamilyPetAssignmentsInput(
+                $request->input('family_pet_assignments', []),
+                $petIds
+            );
+
+            if (count($familyPetAssignments) !== count($petIds)) {
+                return response()->json([
+                    'conflict' => true,
+                    'conflict_type' => 'room',
+                    'valid' => false,
+                    'room_type' => 'mixed',
+                    'message' => 'Please choose a room for each selected pet.',
+                    'family_kennel_mode' => $familyKennelMode,
+                    'family_pet_assignments' => $familyPetAssignments,
+                ]);
+            }
+
+            $familyKennelAssignments = $this->buildFamilyKennelAssignmentsFromPerPetAssignments($familyPetAssignments);
+            $conflict = $this->buildFamilyPetAssignmentConflictPayload(
+                $familyPetAssignments,
+                $startDateTime,
+                $endDateTime,
+                $excludeAppointmentId
+            );
+
+            return response()->json(array_merge([
+                'conflict' => false,
+                'room_type' => 'mixed',
+                'room_id' => null,
+                'room_name' => null,
+                'family_kennel_mode' => $familyKennelMode,
+                'family_kennel_assignments' => $familyKennelAssignments,
+                'family_pet_assignments' => $familyPetAssignments,
+            ], $conflict));
+        }
+
+        if (!$request->filled('room_id')) {
+            return response()->json([
+                'conflict' => true,
+                'conflict_type' => 'room',
+                'valid' => false,
+                'message' => 'Please select a room for the boarding appointment.',
+            ]);
+        }
+
+        $room = Room::findOrFail($request->room_id);
+        $roomType = $this->getRoomAssignmentType($room);
+
+        $familyKennelAssignments = $this->buildFamilyKennelAssignmentsForMode(
+            $petIds,
+            $familyKennelMode,
+            $kennelId,
+            $request->input('family_kennel_assignments', [])
+        );
+
+        $kennelTypeValidation = $this->validateKennelPetTypes(
+            $familyKennelMode === 'individual'
+                ? collect($familyKennelAssignments)->groupBy(fn ($kennelId) => (int) $kennelId)->map(fn ($assignments) => collect($assignments)->keys()->map(fn ($petId) => (int) $petId)->all())->all()
+                : ($kennelId ? [$kennelId => $petIds] : [])
+        );
+        if (!$kennelTypeValidation['valid']) {
+            return response()->json(['conflict' => true, 'conflict_type' => 'kennel_type', 'valid' => false, 'message' => $kennelTypeValidation['message']]);
+        }
+
+        if ($roomType !== 'standard') {
+            $petTypeValidation = $this->validateRoomPetTypes($room, $petIds);
+            if ($petTypeValidation['valid'] === false) {
+                return response()->json(array_merge([
+                    'conflict' => true,
+                    'conflict_type' => 'pet_type',
+                    'room_type' => $roomType,
+                    'room_id' => $room->id,
+                    'room_name' => $room->name,
+                ], $petTypeValidation));
+            }
+        }
+
+        $conflict = $roomType === 'space'
+            ? $this->buildSpaceRoomConflictPayload($room, $startDateTime, $endDateTime, $excludeAppointmentId)
+            : $this->buildBoardingAssignmentConflictPayload(
+                $room,
+                $familyKennelMode,
+                $kennelId,
+                $familyKennelAssignments,
+                $startDateTime,
+                $endDateTime,
+                $excludeAppointmentId,
+                $petIds
+            );
+
+        return response()->json(array_merge([
+            'conflict' => false,
+            'room_type' => $roomType,
+            'room_id' => $room->id,
+            'room_name' => $room->name,
+            'family_kennel_mode' => $familyKennelMode,
+            'family_kennel_assignments' => $familyKennelAssignments,
+        ], $conflict));
+    }
+
+    private function getOverlappingBoardingAppointmentsQuery(Carbon $newStart, Carbon $newEnd, ?int $excludeAppointmentId = null)
+    {
+        $query = Appointment::query()
+            ->whereIn('status', appointment_occupying_statuses())
+            ->whereHas('service.category', function ($q) {
+                $q->whereRaw('LOWER(name) LIKE ?', ['%boarding%']);
+            })
+            ->where(function ($q) use ($newStart, $newEnd) {
+                $q->whereRaw("CONCAT(end_date, ' ', end_time) > ?", [$newStart->format('Y-m-d H:i:s')])
+                    ->whereRaw("CONCAT(date, ' ', start_time) < ?", [$newEnd->format('Y-m-d H:i:s')]);
+            });
+
+        if ($excludeAppointmentId) {
+            $query->where('id', '!=', $excludeAppointmentId);
+        }
+
+        return $query;
+    }
+
+    private function validateRoomPetTypes(Room $room, array $petIds): array
+    {
+        if (empty($petIds)) {
+            return ['valid' => true];
+        }
+
+        $pets = PetProfile::whereIn('id', $petIds)->get();
+        if ($pets->isEmpty()) {
+            return ['valid' => true];
+        }
+
+        $petTypes = $pets->map(fn ($pet) => strtolower((string) ($pet->type ?? '')))
+            ->filter(fn ($type) => $type !== '')
+            ->unique()
+            ->values()
+            ->all();
+
+        $roomPetTypeLabels = $room->pet_type_label_array;
+        $roomName = $room->name;
+        $roomType = $this->getRoomAssignmentType($room);
+
+        if (empty($roomPetTypeLabels)) {
+            // Legacy standard kennel rooms may not have explicit pet-type labels configured.
+            // Treat those as valid here and rely on kennel/cat-specific validation elsewhere.
+            if ($roomType === 'standard') {
+                return ['valid' => true];
+            }
+
+            return [
+                'valid' => false,
+                'message' => "\"{$roomName}\" has not been set up — no animal type has been configured for this room. Please contact an administrator.",
+            ];
+        }
+
+        $unsupportedTypes = array_diff($petTypes, $roomPetTypeLabels);
+
+        if (!empty($unsupportedTypes)) {
+            $allowedStr = implode(' and ', array_map('ucfirst', $roomPetTypeLabels));
+            $unsupportedStr = implode(' and ', array_map('ucfirst', $unsupportedTypes));
+
+            // Find rooms that support the unsupported types
+            $alternativeRooms = Room::where('id', '!=', $room->id)
+                ->get()
+                ->filter(function ($r) use ($unsupportedTypes) {
+                    $labels = $r->pet_type_label_array;
+                    return !empty(array_intersect($unsupportedTypes, $labels));
+                })
+                ->pluck('name')
+                ->values();
+
+            $suggestionLine = $alternativeRooms->isNotEmpty()
+                ? 'Please assign the ' . $unsupportedStr . ' to: <strong>' . $alternativeRooms->implode('</strong>, <strong>') . '</strong>.'
+                : 'Please choose a room that accepts ' . $unsupportedStr . 's.';
+
+            return [
+                'valid' => false,
+                'message' => "<strong>\"{$roomName}\"</strong> is for {$allowedStr}s only — it does not accept {$unsupportedStr}s.<br><br>{$suggestionLine}",
+            ];
+        }
+
+        return ['valid' => true];
+    }
+
+    private function validateKennelPetTypes(array $assignments): array
+    {
+        $normalizedAssignments = collect($assignments)->mapWithKeys(function ($petIds, $kennelId) {
+            return [(int) $kennelId => collect($petIds)->map(fn ($petId) => (int) $petId)->filter()->values()->all()];
+        })->filter(fn ($petIds, $kennelId) => $kennelId > 0 && !empty($petIds));
+
+        if ($normalizedAssignments->isEmpty()) {
+            return ['valid' => true];
+        }
+
+        $petsById = PetProfile::whereIn('id', $normalizedAssignments->flatten()->unique())->get()->keyBy('id');
+        $kennelsById = Kennel::whereIn('id', $normalizedAssignments->keys())->get()->keyBy('id');
+
+        foreach ($normalizedAssignments as $kennelId => $petIds) {
+            $kennel = $kennelsById->get($kennelId);
+            foreach ($petIds as $petId) {
+                $pet = $petsById->get($petId);
+                $requiredType = strtolower((string) ($pet->type ?? 'dog')) === 'cat' ? 'feline' : 'canine';
+                $kennelType = strtolower((string) ($kennel->kennel_type ?? 'Canine'));
+
+                if ($kennel && $requiredType !== $kennelType) {
+                    return [
+                        'valid' => false,
+                        'message' => ($pet->name ?? 'This pet') . ' cannot be assigned to ' . $kennel->name
+                            . '. Pets of this type require a ' . ucfirst($requiredType) . ' kennel.',
+                    ];
+                }
+            }
+        }
+
+        return ['valid' => true];
+    }
+
+    private function getAssignmentRooms()
+    {
+        return Room::orderBy('name')->get();
+    }
+
+    private function getRoomAssignmentType(?Room $room): ?string
+    {
+        if (!$room) {
+            return null;
+        }
+
+        $roomTypes = $room->room_type_array;
+
+        return in_array('space', $roomTypes, true) ? 'space' : 'standard';
+    }
+
+    private function getRoomKennels(Room $room)
+    {
+        $kennelIds = $room->kennel_id_array;
+
+        if (empty($kennelIds)) {
+            return collect();
+        }
+
+        return Kennel::whereIn('id', $kennelIds)->orderBy('name')->get();
+    }
+
+    private function buildAssignmentConflictPayload(Room $room, string $familyKennelMode, ?int $sharedKennelId, array $familyKennelAssignments, Carbon $newStart, Carbon $newEnd, ?int $excludeAppointmentId = null, array $selectedPetIds = []): array
+    {
+        return $this->buildBoardingAssignmentConflictPayload(
+            $room,
+            $familyKennelMode,
+            $sharedKennelId,
+            $familyKennelAssignments,
+            $newStart,
+            $newEnd,
+            $excludeAppointmentId,
+            $selectedPetIds
+        );
+    }
+
+    private function buildKennelConflictPayload(Room $room, ?int $kennelId, Carbon $newStart, Carbon $newEnd, ?int $excludeAppointmentId = null, array $selectedPetIds = []): array
+    {
+        if (!$kennelId) {
+            return ['conflict' => false];
+        }
+
+        $kennel = Kennel::find($kennelId);
+        if (!$kennel) {
+            return ['conflict' => false];
+        }
+
+        $kennelTypeValidation = $this->validateKennelPetTypes([$kennelId => $selectedPetIds]);
+        if (!$kennelTypeValidation['valid']) {
+            return [
+                'conflict' => true,
+                'conflict_type' => 'kennel_type',
+                'blocking' => true,
+                'message' => $kennelTypeValidation['message'],
+                'room_name' => $room->name,
+                'kennel_name' => $kennel->name,
+            ];
+        }
+
+        $block = $kennel->overlappingBlock($newStart->toDateString(), $newEnd->toDateString());
+        if ($block) {
+            return [
+                'conflict' => true,
+                'conflict_type' => 'kennel_blocked',
+                'blocking' => true,
+                'message' => 'Kennel <strong>"' . $kennel->name . '"</strong> is blocked for reservations from <strong>'
+                    . $block->blocked_from->format('M j') . '</strong> to <strong>' . $block->blocked_to->format('M j') . '</strong>'
+                    . ($block->reason ? ' (Reason: ' . $block->reason . ')' : '') . '. Please choose another kennel.',
+                'room_name' => $room->name,
+                'kennel_name' => $kennel->name,
+                'blocked_from' => $block->blocked_from->toDateString(),
+                'blocked_to' => $block->blocked_to->toDateString(),
+                'reason' => $block->reason,
+            ];
+        }
+
+        $overlappingAppointments = $this->getOverlappingBoardingAppointmentsQuery($newStart, $newEnd, $excludeAppointmentId)
+            ->where('kennel_id', $kennelId)
+            ->with(['pet', 'customer.profile'])
+            ->orderBy('date')
+            ->orderBy('start_time')
+            ->get();
+
+        $existingPets = $this->collectAssignmentPetsFromAppointments($overlappingAppointments);
+        $incomingPets = $this->collectPetsByIds($selectedPetIds);
+
+        $occupiedCount = $existingPets->count();
+        $incomingCount = $incomingPets->count();
+        $projectedCount = $occupiedCount + $incomingCount;
+        $capacity = (int) ($kennel->capacity ?? 0);
+        $capacityExceeded = $capacity > 0
+            && ($projectedCount > $capacity || ($incomingCount === 0 && $occupiedCount >= $capacity));
+
+        $combinedPets = $existingPets->concat($incomingPets);
+        $combinedHasNonSmall = $combinedPets->contains(function ($pet) {
+            return !$this->isSmallPetSize($pet['size'] ?? 'medium');
+        });
+        $sizeRuleWarning = $incomingCount > 0 && $combinedHasNonSmall && $projectedCount > 1;
+
+        if ($capacityExceeded || $sizeRuleWarning) {
+            $warningLines = [];
+
+            if ($capacityExceeded) {
+                $warningLines[] = 'Capacity warning: this kennel has capacity <strong>' . $capacity . '</strong>, but this assignment would place <strong>' . $projectedCount . '</strong> pet(s) in it.';
+            }
+
+            if ($sizeRuleWarning) {
+                $warningLines[] = 'Size rule warning: medium, large, and xlarge dogs should occupy a kennel alone and should not share with other pets.';
+            }
+
+            $warningLines[] = 'You can choose another kennel or continue anyway.';
+
+            return [
+                'conflict' => true,
+                'conflict_type' => 'kennel',
+                'message' => implode('<br><br>', $warningLines),
+                'current_occupants' => $this->formatAssignmentOccupants($overlappingAppointments),
+                'occupied_count' => $occupiedCount,
+                'incoming_count' => $incomingCount,
+                'projected_count' => $projectedCount,
+                'capacity' => $capacity,
+                'room_name' => $room->name,
+                'kennel_name' => $kennel->name,
+                'selected_pet_sizes' => $incomingPets->pluck('size')->values()->all(),
+                'occupant_pet_sizes' => $existingPets->pluck('size')->values()->all(),
+                'warning_codes' => array_values(array_filter([
+                    $capacityExceeded ? 'capacity_exceeded' : null,
+                    $sizeRuleWarning ? 'size_sharing' : null,
+                ])),
+            ];
+        }
+
+        return [
+            'conflict' => false,
+            'occupied_count' => $occupiedCount,
+            'incoming_count' => $incomingCount,
+            'projected_count' => $projectedCount,
+            'capacity' => $capacity,
+            'room_name' => $room->name,
+            'kennel_name' => $kennel->name,
+        ];
+    }
+
+    private function collectAssignmentPetsFromAppointments($appointments)
+    {
+        $petIds = collect($appointments)
+            ->flatMap(function ($appointment) {
+                return collect($appointment->family_pet_ids ?: [$appointment->pet_id])
+                    ->map(fn ($id) => (int) $id)
+                    ->filter(fn ($id) => $id > 0);
+            })
+            ->unique()
+            ->values();
+
+        return $this->collectPetsByIds($petIds->all());
+    }
+
+    private function collectPetsByIds(array $petIds)
+    {
+        $normalizedPetIds = collect($petIds)
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn ($id) => $id > 0)
+            ->unique()
+            ->values();
+
+        if ($normalizedPetIds->isEmpty()) {
+            return collect();
+        }
+
+        return PetProfile::whereIn('id', $normalizedPetIds->all())
+            ->get(['id', 'name', 'size', 'type'])
+            ->map(function ($pet) {
+                return [
+                    'id' => (int) $pet->id,
+                    'name' => (string) ($pet->name ?? ''),
+                    'size' => $this->normalizePetSize($pet->size),
+                    'type' => strtolower((string) ($pet->type ?? 'dog')),
+                ];
+            })
+            ->values();
+    }
+
+    private function normalizePetSize($size): string
+    {
+        $normalized = strtolower(trim((string) $size));
+
+        return in_array($normalized, ['small', 'medium', 'large', 'xlarge'], true)
+            ? $normalized
+            : 'medium';
+    }
+
+    private function isSmallPetSize($size): bool
+    {
+        return $this->normalizePetSize($size) === 'small';
+    }
+
+    private function buildSpaceRoomConflictPayload(Room $room, Carbon $newStart, Carbon $newEnd, ?int $excludeAppointmentId = null): array
+    {
+        $restrictCount = $room->restrict_count;
+        if ($restrictCount === null) {
+            return ['conflict' => false, 'room_name' => $room->name];
+        }
+
+        $overlappingAppointments = $this->getOverlappingBoardingAppointmentsQuery($newStart, $newEnd, $excludeAppointmentId)
+            ->where('cat_room_id', $room->id)
+            ->with(['pet', 'customer.profile'])
+            ->orderBy('date')
+            ->orderBy('start_time')
+            ->get();
+
+        $occupiedCount = $overlappingAppointments->count();
+
+        if ($occupiedCount >= (int) $restrictCount) {
+            return [
+                'conflict' => true,
+                'conflict_type' => 'room',
+                'message' => 'Room already has an active assignment.',
+                'current_occupants' => $this->formatAssignmentOccupants($overlappingAppointments),
+                'occupied_count' => $occupiedCount,
+                'capacity' => (int) $restrictCount,
+                'room_name' => $room->name,
+            ];
+        }
+
+        return [
+            'conflict' => false,
+            'occupied_count' => $occupiedCount,
+            'capacity' => (int) $restrictCount,
+            'room_name' => $room->name,
+        ];
+    }
+
+    private function formatAssignmentOccupants($appointments): array
+    {
+        return collect($appointments)->map(function ($appointment) {
+            $pets = collect($appointment->familyPets ?? [$appointment->pet])->filter();
+            $petNames = $pets->pluck('name')->filter()->values()->all();
+            $firstPet = $pets->first();
+
+            return [
+                'pet_names' => $petNames,
+                'pet_type' => strtolower((string) optional($firstPet)->type),
+                'start_date' => $appointment->date ? Carbon::parse($appointment->date)->toDateString() : null,
+                'end_date' => $appointment->end_date ? Carbon::parse($appointment->end_date)->toDateString() : ($appointment->date ? Carbon::parse($appointment->date)->toDateString() : null),
+            ];
+        })->values()->all();
+    }
+
+    private function serviceRequiresScheduledSlot($service): bool
+    {
+        if (!$service) {
+            return false;
+        }
+
+        $serviceName = strtolower($service->name ?? '');
+        $categoryName = strtolower(optional($service->category)->name ?? '');
+
+        return str_contains($categoryName, 'groom')
+            || str_contains($categoryName, 'training')
+            || str_contains($serviceName, 'bath');
+    }
+
+    private function filterTimeSlotsByPickupTime($timeSlots, $pickupTime)
+    {
+        if (!$pickupTime) {
+            return collect($timeSlots)->values();
+        }
+
+        $normalizedPickupTime = strlen($pickupTime) === 5 ? $pickupTime . ':00' : $pickupTime;
+        $pickupTimeCarbon = Carbon::createFromFormat('H:i:s', $normalizedPickupTime);
+
+        return collect($timeSlots)->filter(function ($slot) use ($pickupTimeCarbon) {
+            $slotStartTime = Carbon::createFromFormat('H:i:s', $slot->start_time);
+            $slotEndTime = Carbon::createFromFormat('H:i:s', $slot->end_time);
+
+            $endsAfterPickup = $slotEndTime->gt($pickupTimeCarbon);
+            $pickupFallsWithinSlot = $pickupTimeCarbon->gt($slotStartTime) && $pickupTimeCarbon->lt($slotEndTime);
+
+            return !$endsAfterPickup && !$pickupFallsWithinSlot;
+        })->values();
+    }
+
+    private function calculateFamilyBoardingEstimatedPrice(Service $service, Appointment $appointment, array $petIds, array $additionalServicesByPet, int $customerId): float
+    {
+        if (!isBoardingService($service) || empty($petIds)) {
+            return 0;
+        }
+
+        $allAdditionalServiceIds = collect($additionalServicesByPet)
+            ->flatten()
+            ->map(fn ($serviceId) => (int) $serviceId)
+            ->filter(fn ($serviceId) => $serviceId > 0)
+            ->unique()
+            ->values();
+
+        $additionalServiceMap = $allAdditionalServiceIds->isNotEmpty()
+            ? Service::whereIn('id', $allAdditionalServiceIds->all())->get()->keyBy('id')
+            : collect();
+
+        $estimatedTotal = 0;
+
+        foreach ($petIds as $petId) {
+            $pet = PetProfile::find($petId);
+            $petSize = $pet ? $pet->size : 'medium';
+
+            $priceAppointment = clone $appointment;
+            $priceAppointment->pet_id = $petId;
+
+            $petBoardingTotal = getBoardingServicePrice($service, $priceAppointment);
+            $petTotal = $petBoardingTotal === null ? 0 : $petBoardingTotal;
+
+            $petAdditionalServiceIds = collect($additionalServicesByPet[$petId] ?? [])
+                ->map(fn ($serviceId) => (int) $serviceId)
+                ->filter(fn ($serviceId) => $serviceId > 0)
+                ->unique()
+                ->values();
+
+            foreach ($petAdditionalServiceIds as $additionalServiceId) {
+                $additionalService = $additionalServiceMap->get($additionalServiceId);
+                if (!$additionalService) {
+                    continue;
+                }
+
+                if (isChauffeurService($additionalService)) {
+                    $petTotal += calculateChauffeurServicePrice($additionalService, $customerId);
+                } else {
+                    $petTotal += getServicePrice($additionalService, $petSize);
+                }
+            }
+
+            $estimatedTotal += $petTotal;
+        }
+
+        return round($estimatedTotal, 2);
+    }
+
+    private function normalizeAdditionalServicesByPetInput(array $petIds, $rawAdditionalServicesByPet, $legacyAdditionalServices = []): array
+    {
+        $normalizedPetIds = collect($petIds)
+            ->map(fn ($petId) => (int) $petId)
+            ->filter(fn ($petId) => $petId > 0)
+            ->values();
+
+        $normalizedByPet = [];
+
+        if (is_array($rawAdditionalServicesByPet)) {
+            foreach ($rawAdditionalServicesByPet as $petId => $serviceIds) {
+                $normalizedPetId = (int) $petId;
+
+                if ($normalizedPetId <= 0 || !$normalizedPetIds->contains($normalizedPetId)) {
+                    continue;
+                }
+
+                if (is_string($serviceIds)) {
+                    $serviceIds = explode(',', $serviceIds);
+                }
+
+                $normalizedByPet[$normalizedPetId] = collect(is_array($serviceIds) ? $serviceIds : [])
+                    ->map(fn ($serviceId) => (int) $serviceId)
+                    ->filter(fn ($serviceId) => $serviceId > 0)
+                    ->unique()
+                    ->values()
+                    ->all();
+            }
+        }
+
+        if (empty($normalizedByPet)) {
+            $legacyIds = collect(is_array($legacyAdditionalServices) ? $legacyAdditionalServices : [])
+                ->map(fn ($serviceId) => (int) $serviceId)
+                ->filter(fn ($serviceId) => $serviceId > 0)
+                ->unique()
+                ->values()
+                ->all();
+
+            if (!empty($legacyIds)) {
+                if ($normalizedPetIds->count() > 1) {
+                    foreach ($normalizedPetIds as $petId) {
+                        $normalizedByPet[(int) $petId] = $legacyIds;
+                    }
+                } elseif ($normalizedPetIds->isNotEmpty()) {
+                    $normalizedByPet[(int) $normalizedPetIds->first()] = $legacyIds;
+                }
+            }
+        }
+
+        if ($normalizedPetIds->count() > 1) {
+            foreach ($normalizedPetIds as $petId) {
+                if (!array_key_exists((int) $petId, $normalizedByPet)) {
+                    $normalizedByPet[(int) $petId] = [];
+                }
+            }
+        }
+
+        ksort($normalizedByPet);
+
+        return $normalizedByPet;
+    }
+
+    private function normalizeAdditionalServiceTimeSlotsInput($rawAdditionalServiceTimeSlots, array $selectedAdditionalServiceIds, ?int $legacyTimeSlotId = null): array
+    {
+        $normalizedSelectedServiceIds = collect($selectedAdditionalServiceIds)
+            ->map(fn ($serviceId) => (int) $serviceId)
+            ->filter(fn ($serviceId) => $serviceId > 0)
+            ->unique()
+            ->values();
+
+        $normalizedMap = [];
+
+        if (is_array($rawAdditionalServiceTimeSlots)) {
+            foreach ($rawAdditionalServiceTimeSlots as $serviceId => $timeSlotId) {
+                $normalizedServiceId = (int) $serviceId;
+                $normalizedTimeSlotId = (int) $timeSlotId;
+
+                if (
+                    $normalizedServiceId <= 0
+                    || $normalizedTimeSlotId <= 0
+                    || !$normalizedSelectedServiceIds->contains($normalizedServiceId)
+                ) {
+                    continue;
+                }
+
+                $normalizedMap[$normalizedServiceId] = $normalizedTimeSlotId;
+            }
+        }
+
+        if (empty($normalizedMap) && $legacyTimeSlotId && $normalizedSelectedServiceIds->count() === 1) {
+            $normalizedMap[(int) $normalizedSelectedServiceIds->first()] = (int) $legacyTimeSlotId;
+        }
+
+        ksort($normalizedMap);
+
+        return $normalizedMap;
+    }
+
+    private function normalizeAdditionalServiceTimeSlotsByPetInput($rawAdditionalServiceTimeSlotsByPet, array $additionalServicesByPet, ?int $legacyTimeSlotId = null, $rawAdditionalServiceTimeSlots = []): array
+    {
+        $normalizedAdditionalServicesByPet = [];
+
+        foreach ($additionalServicesByPet as $petId => $serviceIds) {
+            $normalizedPetId = (int) $petId;
+            if ($normalizedPetId <= 0 || !is_array($serviceIds)) {
+                continue;
+            }
+
+            $normalizedServiceIds = collect($serviceIds)
+                ->map(fn ($serviceId) => (int) $serviceId)
+                ->filter(fn ($serviceId) => $serviceId > 0)
+                ->unique()
+                ->values()
+                ->all();
+
+            $normalizedAdditionalServicesByPet[$normalizedPetId] = $normalizedServiceIds;
+        }
+
+        $assignmentsByKey = [];
+
+        if (is_array($rawAdditionalServiceTimeSlotsByPet)) {
+            foreach ($rawAdditionalServiceTimeSlotsByPet as $petId => $serviceSlotMap) {
+                $normalizedPetId = (int) $petId;
+                if ($normalizedPetId <= 0 || !isset($normalizedAdditionalServicesByPet[$normalizedPetId]) || !is_array($serviceSlotMap)) {
+                    continue;
+                }
+
+                foreach ($serviceSlotMap as $serviceId => $timeSlotId) {
+                    $normalizedServiceId = (int) $serviceId;
+                    $normalizedTimeSlotId = (int) $timeSlotId;
+
+                    if (
+                        $normalizedServiceId <= 0
+                        || $normalizedTimeSlotId <= 0
+                        || !in_array($normalizedServiceId, $normalizedAdditionalServicesByPet[$normalizedPetId], true)
+                    ) {
+                        continue;
+                    }
+
+                    $assignmentKey = $normalizedPetId . ':' . $normalizedServiceId;
+                    $assignmentsByKey[$assignmentKey] = [
+                        'pet_id' => $normalizedPetId,
+                        'service_id' => $normalizedServiceId,
+                        'time_slot_id' => $normalizedTimeSlotId,
+                    ];
+                }
+            }
+        }
+
+        if (empty($assignmentsByKey) && is_array($rawAdditionalServiceTimeSlots)) {
+            foreach ($rawAdditionalServiceTimeSlots as $serviceId => $timeSlotId) {
+                $normalizedServiceId = (int) $serviceId;
+                $normalizedTimeSlotId = (int) $timeSlotId;
+
+                if ($normalizedServiceId <= 0 || $normalizedTimeSlotId <= 0) {
+                    continue;
+                }
+
+                foreach ($normalizedAdditionalServicesByPet as $normalizedPetId => $serviceIds) {
+                    if (!in_array($normalizedServiceId, $serviceIds, true)) {
+                        continue;
+                    }
+
+                    $assignmentKey = $normalizedPetId . ':' . $normalizedServiceId;
+                    $assignmentsByKey[$assignmentKey] = [
+                        'pet_id' => $normalizedPetId,
+                        'service_id' => $normalizedServiceId,
+                        'time_slot_id' => $normalizedTimeSlotId,
+                    ];
+                }
+            }
+        }
+
+        if (empty($assignmentsByKey) && $legacyTimeSlotId) {
+            $singlePetId = array_key_first($normalizedAdditionalServicesByPet);
+            $singlePetServiceIds = $singlePetId ? ($normalizedAdditionalServicesByPet[$singlePetId] ?? []) : [];
+
+            if ($singlePetId && count($normalizedAdditionalServicesByPet) === 1 && count($singlePetServiceIds) === 1) {
+                $singleServiceId = (int) $singlePetServiceIds[0];
+                $assignmentKey = $singlePetId . ':' . $singleServiceId;
+                $assignmentsByKey[$assignmentKey] = [
+                    'pet_id' => (int) $singlePetId,
+                    'service_id' => $singleServiceId,
+                    'time_slot_id' => (int) $legacyTimeSlotId,
+                ];
+            }
+        }
+
+        $assignments = array_values($assignmentsByKey);
+        usort($assignments, function ($left, $right) {
+            return [$left['pet_id'], $left['service_id']] <=> [$right['pet_id'], $right['service_id']];
+        });
+
+        return $assignments;
+    }
+
+    private function getAdditionalServicePetCounts(array $additionalServicesByPet): array
+    {
+        $counts = [];
+
+        foreach ($additionalServicesByPet as $petId => $serviceIds) {
+            if (!is_array($serviceIds)) {
+                continue;
+            }
+
+            $normalizedServiceIds = collect($serviceIds)
+                ->map(fn ($serviceId) => (int) $serviceId)
+                ->filter(fn ($serviceId) => $serviceId > 0)
+                ->unique()
+                ->values();
+
+            foreach ($normalizedServiceIds as $serviceId) {
+                $counts[$serviceId] = ($counts[$serviceId] ?? 0) + 1;
+            }
+        }
+
+        return $counts;
+    }
+
+    private function markCatRoomOutOfService(?int $roomId): void
+    {
+        if (!$roomId) {
+            return;
+        }
+
+        Room::where('id', $roomId)->update(['status' => 'Out of Service']);
+    }
+
+    private function releaseCatRoomIfUnused(?int $roomId, ?int $excludingAppointmentId = null): void
+    {
+        if (!$roomId) {
+            return;
+        }
+
+        $roomStillAssigned = Appointment::where('cat_room_id', $roomId)
+            ->when($excludingAppointmentId, function ($query) use ($excludingAppointmentId) {
+                $query->where('id', '!=', $excludingAppointmentId);
+            })
+            ->whereIn('status', appointment_occupying_statuses())
+            ->whereHas('service.category', function ($query) {
+                $query->whereRaw('LOWER(name) LIKE ?', ['%boarding%']);
+            })
+            ->exists();
+
+        if (!$roomStillAssigned) {
+            Room::where('id', $roomId)
+                ->where('status', 'Out of Service')
+                ->update(['status' => 'Available']);
+        }
+    }
+
+    private function spaceRoomsQuery()
+    {
+        return Room::where(function ($query) {
+            $query->where('room_types', 'space')
+                ->orWhere('room_types', 'like', '%space%');
+        });
+    }
+
+    private function catRoomsQuery()
+    {
+        return $this->spaceRoomsQuery()->where(function ($query) {
+            $query->where('pet_type_labels', 'like', '%cat%');
+        });
+    }
+
+    private function availableCatRoomsQuery()
+    {
+        return $this->catRoomsQuery()->where('status', 'Available');
+    }
+
+    /**
+     * Admin only (not in sunshine-laravel): frees the room, kennel and additional service
+     * time slots of a boarding appointment that is being saved as another service.
+     */
+    private function releaseBoardingAssignment(Appointment $appointment): void
+    {
+        $this->releaseTimeSlots($appointment);
+
+        $oldRoomId = $appointment->cat_room_id;
+
+        $appointment->kennel_id = null;
+        $appointment->cat_room_id = null;
+        $appointment->end_date = null;
+        $appointment->metadata = null;
+
+        $this->releaseCatRoomIfUnused($oldRoomId, $appointment->id);
+    }
+
+    /**
+     * Admin only (not in sunshine-laravel): once another service has been saved as boarding,
+     * release the time slot it held and drop that service's metadata.
+     */
+    private function clearPreviousServiceData(?Appointment $previousAppointment): void
+    {
+        if (!$previousAppointment || isBoardingService($previousAppointment->service)) {
+            return;
+        }
+
+        $appointment = Appointment::with('service.category')->find($previousAppointment->id);
+
+        if (!$appointment || !isBoardingService($appointment->service)) {
+            return;
+        }
+
+        $this->releaseTimeSlots($previousAppointment);
+
+        $metadata = is_array($appointment->metadata) ? $appointment->metadata : [];
+        unset(
+            $metadata['daycare_duration'],
+            $metadata['session'],
+            $metadata['private_training_duration'],
+            $metadata['secondary_service_ids'],
+            $metadata['used_slot_ids'],
+            $metadata['group_class_ids']
+        );
+        $appointment->metadata = !empty($metadata) ? $metadata : null;
+        $appointment->save();
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Required vaccines (sunshine-laravel's App\Services\PetVaccineValidator)
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Required vaccines per pet type (case-insensitive match against vaccination.type).
+     */
+    private const REQUIRED_VACCINES = [
+        'dog' => ['DHPP', 'Bordetella', 'Rabies'],
+        'cat' => ['FVRCP', 'Rabies'],
+    ];
+
+    /**
+     * Validate that all required vaccines for a pet are present and not expired.
+     *
+     * Returns:
+     *   ['valid' => true]
+     *   ['valid' => false, 'status' => 'missing'|'expired', 'vaccine' => string|null, 'message' => string, 'messages' => string[]]
+     */
+    private function validatePetVaccines(PetProfile $pet): array
+    {
+        $petType = strtolower((string) $pet->type);
+        $required = self::REQUIRED_VACCINES[$petType] ?? null;
+
+        // Unknown pet type – fall back to the legacy vaccine_status field
+        if ($required === null) {
+            return $this->fallbackToStatus($pet);
+        }
+
+        $vaccinations = $pet->vaccinations; // lazy-loads if not already loaded
+        $today = Carbon::today();
+        $missingVaccines = [];
+        $expiredVaccines = [];
+
+        foreach ($required as $vaccineType) {
+            $record = $this->findLatestRecord($vaccinations, $vaccineType);
+
+            if (!$record) {
+                $missingVaccines[] = $vaccineType;
+                continue;
+            }
+
+            if ($this->isExpired($record, $today)) {
+                $expiredVaccines[] = $vaccineType;
+            }
+        }
+
+        if (!empty($missingVaccines) || !empty($expiredVaccines)) {
+            $status = !empty($missingVaccines) ? 'missing' : 'expired';
+            $primaryVaccine = !empty($missingVaccines) ? $missingVaccines[0] : $expiredVaccines[0];
+            $messages = $this->buildDetailedMessages($missingVaccines, $expiredVaccines);
+
+            return [
+                'valid'   => false,
+                'status'  => $status,
+                'vaccine' => $primaryVaccine,
+                'message' => $this->buildSummaryMessage($missingVaccines, $expiredVaccines),
+                'messages' => $messages,
+            ];
+        }
+
+        return ['valid' => true];
+    }
+
+    private function buildSummaryMessage(array $missingVaccines, array $expiredVaccines): string
+    {
+        $parts = [];
+
+        if (!empty($missingVaccines)) {
+            $parts[] = $this->formatVaccineList($missingVaccines) . ' vaccination' . (count($missingVaccines) > 1 ? 's are' : ' is') . ' missing.';
+        }
+
+        if (!empty($expiredVaccines)) {
+            $parts[] = $this->formatVaccineList($expiredVaccines) . ' vaccination' . (count($expiredVaccines) > 1 ? 's are' : ' is') . ' expired.';
+        }
+
+        return implode(' ', $parts);
+    }
+
+    private function buildDetailedMessages(array $missingVaccines, array $expiredVaccines): array
+    {
+        $messages = [];
+
+        foreach ($missingVaccines as $vaccine) {
+            $messages[] = $vaccine . ' vaccination is missing.';
+        }
+
+        foreach ($expiredVaccines as $vaccine) {
+            $messages[] = $vaccine . ' vaccination is expired.';
+        }
+
+        return $messages;
+    }
+
+    private function formatVaccineList(array $vaccines): string
+    {
+        $vaccines = array_values($vaccines);
+        $count = count($vaccines);
+
+        if ($count <= 1) {
+            return $vaccines[0] ?? '';
+        }
+
+        if ($count === 2) {
+            return $vaccines[0] . ' and ' . $vaccines[1];
+        }
+
+        $last = array_pop($vaccines);
+
+        return implode(', ', $vaccines) . ', and ' . $last;
+    }
+
+    /**
+     * Find the most recent vaccination record matching the given type (case-insensitive).
+     */
+    private function findLatestRecord($vaccinations, string $type): ?PetVaccination
+    {
+        return $vaccinations
+            ->filter(fn ($v) => strcasecmp((string) $v->type, $type) === 0)
+            ->sortByDesc(fn ($v) => optional($v->date)->timestamp ?? 0)
+            ->first();
+    }
+
+    /**
+     * A vaccination record is expired when today >= (vaccination date + months).
+     * If no date or months are recorded the record is treated as valid (no expiry data).
+     */
+    private function isExpired(PetVaccination $record, Carbon $today): bool
+    {
+        if (!$record->date || empty($record->months)) {
+            return false;
+        }
+
+        $expiresOn = $record->date->copy()->startOfDay()->addMonthsNoOverflow((int) $record->months);
+
+        return $today->greaterThanOrEqualTo($expiresOn);
+    }
+
+    /**
+     * Legacy fallback for pet types not covered by REQUIRED_VACCINES.
+     */
+    private function fallbackToStatus(PetProfile $pet): array
+    {
+        if ($pet->vaccine_status === 'approved') {
+            return ['valid' => true];
+        }
+
+        if ($pet->vaccine_status === 'expired') {
+            return [
+                'valid'   => false,
+                'status'  => 'expired',
+                'vaccine' => null,
+                'message' => 'Pet vaccination is expired.',
+                'messages' => ['Pet vaccination is expired.'],
+            ];
+        }
+
+        return [
+            'valid'   => false,
+            'status'  => 'missing',
+            'vaccine' => null,
+            'message' => 'Pet vaccination records are not approved.',
+            'messages' => ['Pet vaccination records are not approved.'],
+        ];
     }
 
     public function updateStatus(Request $request, $id)
