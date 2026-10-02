@@ -129,6 +129,18 @@
       </div>
 
       <h4>Items & Pricing</h4>
+
+      @if(isset($invoiceData['additional_services_grouped_by_pet']) && is_array($invoiceData['additional_services_grouped_by_pet']) && count($invoiceData['additional_services_grouped_by_pet']) > 0)
+      <div style="margin-bottom: 12px;">
+        <strong>Additional Services by Pet</strong>
+        <ul style="margin: 6px 0 0 18px; padding: 0;">
+          @foreach($invoiceData['additional_services_grouped_by_pet'] as $petGroup)
+            <li>{{ $petGroup['pet_name'] ?? 'Pet' }}: {{ isset($petGroup['services']) && is_array($petGroup['services']) ? implode(', ', $petGroup['services']) : '' }}</li>
+          @endforeach
+        </ul>
+      </div>
+      @endif
+
       <table>
         <thead>
           <tr>
@@ -195,12 +207,54 @@
             <td colspan="2" style="text-align: right; font-weight: 600;">Total Inventory Amount:</td>
             <td style="text-align: right; font-weight: 600;">${{ number_format($invoiceData['total_inventory_amount'] ?? 0, 2) }}</td>
           </tr>
+          {{-- Admin adaptation: only boarding invoices send a subtotal, so the row is hidden for the other services. --}}
+          @if(isset($invoiceData['subtotal_amount']))
+          <tr>
+            <td colspan="2" style="text-align: right; font-weight: 600;">Subtotal:</td>
+            <td style="text-align: right; font-weight: 600;">${{ number_format($invoiceData['subtotal_amount'] ?? 0, 2) }}</td>
+          </tr>
+          @endif
+          @if(!empty($invoiceData['state_tax_rate']) && ($invoiceData['state_tax_rate'] > 0))
+          <tr>
+            <td colspan="2" style="text-align: right; font-weight: 600;">State Tax ({{ number_format($invoiceData['state_tax_rate'], 2) }}%):</td>
+            <td style="text-align: right; font-weight: 600;">${{ number_format($invoiceData['state_tax_amount'] ?? 0, 2) }}</td>
+          </tr>
+          @endif
           <tr class="total-row">
             <td colspan="2" style="text-align: right;">Total Amount:</td>
             <td style="text-align: right;">${{ number_format($invoiceData['total_amount'] ?? 0, 2) }}</td>
           </tr>
+          @if(!empty($invoiceData['online_payment']) && $invoiceData['online_payment'] > 0)
+          <tr>
+            <td colspan="2" style="text-align: right; font-weight: 600;">Online Payment:</td>
+            <td style="text-align: right; font-weight: 600;">${{ number_format($invoiceData['online_payment'] ?? 0, 2) }}</td>
+          </tr>
+          @endif
+          @if(!empty($invoiceData['in_person_payment']) && $invoiceData['in_person_payment'] > 0)
+          <tr>
+            <td colspan="2" style="text-align: right; font-weight: 600;">In-Person Payment:</td>
+            <td style="text-align: right; font-weight: 600;">${{ number_format($invoiceData['in_person_payment'] ?? 0, 2) }}</td>
+          </tr>
+          @endif
+          @if(isset($invoiceData['balance_due']))
+          <tr>
+            <td colspan="2" style="text-align: right; font-weight: 700;">Balance Due:</td>
+            <td style="text-align: right; font-weight: 700;">${{ number_format($invoiceData['balance_due'] ?? 0, 2) }}</td>
+          </tr>
+          @endif
         </tfoot>
       </table>
+
+      @if(isset($invoiceData['payment_link_url']) && $invoiceData['payment_link_url'])
+      <div style="background: #e3f2fd; border-left: 4px solid #2196f3; padding: 16px; margin: 20px 0; border-radius: 4px;">
+        <p style="margin: 0 0 12px 0; font-weight: 600; color: #1565c0;">Pay Invoice Online</p>
+        <p style="margin: 0 0 12px 0; color: #333;">Click the button below to pay your remaining balance securely online using Stripe:</p>
+        <a href="{{ $invoiceData['payment_link_url'] }}" style="display: inline-block; background: #2196f3; color: white; padding: 12px 24px; border-radius: 4px; text-decoration: none; font-weight: 600;">
+          Pay Now - ${{ number_format($invoiceData['balance_due'] ?? $invoiceData['total_amount'] ?? 0, 2) }}
+        </a>
+        <p style="margin: 12px 0 0 0; font-size: 13px; color: #666;">Your payment is secure. Your card details are encrypted and processed by Stripe.</p>
+      </div>
+      @endif
 
       @if(isset($invoiceData['notes']) && $invoiceData['notes'])
       <div class="notes">

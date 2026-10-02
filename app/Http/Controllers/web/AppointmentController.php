@@ -27,8 +27,13 @@ use App\Models\Notification;
 use App\Models\Kennel;
 use App\Models\Room;
 use App\Models\PetVaccination;
+use App\Services\InvoicePaymentService;
+use App\Services\BoardingCareScheduleService;
+use App\Services\LateFeeService;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Log;
 use App\Mail\Invoice as InvoiceMail;
 use App\Mail\AdminCustomerMessage;
 
@@ -1498,6 +1503,12 @@ class AppointmentController extends Controller
         ]);
 
         $checkIn = Checkin::where('appointment_id', $id)->first();
+        $existingFlows = [];
+        if ($checkIn && !empty($checkIn->flows)) {
+            $decodedExistingFlows = json_decode($checkIn->flows, true);
+            $existingFlows = is_array($decodedExistingFlows) ? $decodedExistingFlows : [];
+        }
+
         if (!$checkIn) {
             $checkIn = new Checkin;
             $checkIn->appointment_id = $id;
@@ -1547,6 +1558,15 @@ class AppointmentController extends Controller
         $checkIn->flows = json_encode($request->flows);
         $checkIn->save();
 
+        if (isBoardingService($appointment->service)) {
+            $previousFleaTickAmount = floatval(getBoardingFleaTickBreakdown($appointment, $existingFlows)['amount'] ?? 0);
+            $currentFleaTickAmount = floatval(getBoardingFleaTickBreakdown($appointment, $request->flows)['amount'] ?? 0);
+
+            $baseEstimatedPrice = max(0, floatval($appointment->estimated_price ?? 0) - $previousFleaTickAmount);
+            $appointment->estimated_price = round($baseEstimatedPrice + $currentFleaTickAmount, 2);
+            $appointment->save();
+        }
+
         if (isPrivateTrainingService($appointment->service) && $checkIn->flows) {
             $flows = json_decode($checkIn->flows, true);
 
@@ -1581,6 +1601,44 @@ class AppointmentController extends Controller
 
         $isPackageAppointment = $appointment->service && isPackageService($appointment->service);
         $isBoardingService = $appointment->service && isBoardingService($appointment->service);
+
+        if ($isBoardingService) {
+            $checkInForAgreement = Checkin::where('appointment_id', $appointment->id)->first();
+            $flows = [];
+
+            if ($checkInForAgreement && !empty($checkInForAgreement->flows)) {
+                $decodedFlows = json_decode($checkInForAgreement->flows, true);
+                $flows = is_array($decodedFlows) ? $decodedFlows : [];
+            }
+
+            $isTruthy = function ($value) {
+                return $value === true || $value === 'true' || $value === 1 || $value === '1';
+            };
+
+            $agreementAccepted = $isTruthy($flows['boarding_agreement_accepted'] ?? null);
+            $vetAuthorized = $isTruthy($flows['boarding_vet_authorized'] ?? null);
+            $ownerFullName = trim((string) ($flows['boarding_owner_full_name'] ?? ''));
+            $signatureData = trim((string) ($flows['boarding_signature_data'] ?? ''));
+
+            if (!$agreementAccepted || !$vetAuthorized || $ownerFullName === '' || $signatureData === '') {
+                return redirect()->back()->with([
+                    'message' => 'Boarding agreement and owner signature are required before confirming check-in.',
+                    'status' => 'fail'
+                ])->withInput();
+            }
+
+            $boardingPet = $appointment->pet;
+            if ($boardingPet) {
+                // Admin adaptation: sunshine's PetVaccineValidator is inlined as validatePetVaccines().
+                $vaccineValidation = $this->validatePetVaccines($boardingPet);
+                if (!$vaccineValidation['valid']) {
+                    return redirect()->back()->with([
+                        'message' => 'Cannot confirm check-in: ' . ($vaccineValidation['message'] ?? 'Pet vaccination is not valid.'),
+                        'status' => 'fail'
+                    ]);
+                }
+            }
+        }
 
         $validationRules = [
             'staff_id' => 'nullable|exists:users,id',
@@ -1632,6 +1690,15 @@ class AppointmentController extends Controller
         $checkIn->date = $request->date;
         $checkIn->notes = $request->notes;
         $checkIn->save();
+
+        if ($isBoardingService) {
+            $careFlows = !empty($checkIn->flows) ? json_decode($checkIn->flows, true) : [];
+            app(BoardingCareScheduleService::class)->regenerate(
+                $appointment,
+                is_array($careFlows) ? $careFlows : [],
+                $appointment->date
+            );
+        }
 
         if (!$isBoardingService) {
             $process = Process::where('appointment_id', $appointment->id)->first();
@@ -1859,6 +1926,8 @@ class AppointmentController extends Controller
 
     public function getProcessFlows(Request $request, $id)
     {
+        $appointment = Appointment::with('service')->find($id);
+
         if ($request->input('get_used_dates')) {
             $usedDates = Process::where('appointment_id', $id)
                 ->whereNotNull('date')
@@ -1913,6 +1982,10 @@ class AppointmentController extends Controller
                 if (is_array($decodedFlows)) {
                     $flows = $decodedFlows;
                 }
+            }
+
+            if ($appointment && isBoardingService($appointment->service) && ! $serviceId) {
+                $flows = $this->mergeBoardingWorkflowFlowsForDate($workflowDate, (int) $appointment->service_id, $flows);
             }
 
             // Get staff name
@@ -2117,6 +2190,12 @@ class AppointmentController extends Controller
 
     public function saveInvoice(Request $request, $id)
     {
+        // Boarding invoices use sunshine-laravel's flow (partial payments, state tax, late fees).
+        $boardingAppointment = Appointment::with('service')->find($id);
+        if ($boardingAppointment && isBoardingService($boardingAppointment->service)) {
+            return $this->saveInvoiceBoarding($request, $id);
+        }
+
         $request->validate([
             'invoice_number' => 'required|string',
             'first_name' => 'required|string|max:255',
@@ -2434,8 +2513,35 @@ class AppointmentController extends Controller
             $checkout->appointment_id = $appointment->id;
         }
 
+        $existingCheckoutFlows = [];
+        if (!empty($checkout->flows)) {
+            $decodedExistingCheckoutFlows = is_array($checkout->flows)
+                ? $checkout->flows
+                : json_decode($checkout->flows, true);
+            $existingCheckoutFlows = is_array($decodedExistingCheckoutFlows) ? $decodedExistingCheckoutFlows : [];
+        }
+        $previousAppliedLateCheckoutFee = floatval($existingCheckoutFlows['applied_late_checkout_daycare_fee'] ?? 0);
+
         $checkout->date = $request->date;
         $checkout->notes = $request->notes;
+
+        $actualCheckoutAt = null;
+        if ($request->filled('actual_checkout_at')) {
+            try {
+                $actualCheckoutAt = Carbon::parse($request->actual_checkout_at);
+            } catch (\Throwable $e) {
+                $actualCheckoutAt = null;
+            }
+        }
+
+        if (!$actualCheckoutAt) {
+            $effectivePickupTime = $request->pickup_time ?: now()->format('H:i:s');
+            try {
+                $actualCheckoutAt = Carbon::parse($request->date . ' ' . $effectivePickupTime);
+            } catch (\Throwable $e) {
+                $actualCheckoutAt = Carbon::now();
+            }
+        }
 
         // For package appointments, save pickup time to appointment end_time
         if ($isPackageAppointment && $request->filled('pickup_time')) {
@@ -2445,6 +2551,16 @@ class AppointmentController extends Controller
 
         // Handle flows and pictures
         $flowsData = $request->flows ? json_decode($request->flows, true) : [];
+        // Admin adaptation: sunshine records the actual checkout time for every appointment; admin only
+        // records it for boarding so the checkout data of the other services is unchanged.
+        if (isBoardingService($appointment->service)) {
+            if (!is_array($flowsData)) {
+                $flowsData = [];
+            }
+            $flowsData['actual_checkout_at'] = $actualCheckoutAt->format('Y-m-d H:i:s');
+            $flowsData['actual_checkout_date'] = $actualCheckoutAt->toDateString();
+            $flowsData['actual_checkout_time'] = $actualCheckoutAt->format('H:i:s');
+        }
 
         // Handle picture uploads
         $pictureNames = [];
@@ -2475,8 +2591,28 @@ class AppointmentController extends Controller
             ]);
         }
 
+        $appliedLateCheckoutDaycareFee = 0;
+        if (isBoardingService($appointment->service) && ($appointment->status ?? null) === 'completed') {
+            $checkoutForLateFee = clone $checkout;
+            $checkoutForLateFee->flows = $flowsData;
+            $lateCheckoutBreakdown = getBoardingLateCheckoutDaycareBreakdown($appointment, $checkoutForLateFee, 1);
+            $appliedLateCheckoutDaycareFee = floatval($lateCheckoutBreakdown['fee'] ?? 0);
+        }
+        // Admin adaptation: only boarding checkouts carry the late checkout fee key.
+        if (isBoardingService($appointment->service)) {
+            $flowsData['applied_late_checkout_daycare_fee'] = $appliedLateCheckoutDaycareFee;
+        }
+
         $checkout->flows = json_encode($flowsData);
         $checkout->save();
+
+        if (isBoardingService($appointment->service) && ($appointment->status ?? null) === 'completed') {
+            $storedEstimatedPrice = floatval($appointment->estimated_price ?? 0);
+            $baseEstimatedPrice = max(0, $storedEstimatedPrice - $previousAppliedLateCheckoutFee);
+            $appointment->estimated_price = round($baseEstimatedPrice + $appliedLateCheckoutDaycareFee, 2);
+            $appointment->save();
+            app(LateFeeService::class)->reconcile($appointment->fresh());
+        }
 
         $invoice = Invoice::where('appointment_id', $appointment->id)->first();
         $isInvoicePaid = $invoice && $invoice->status === 'paid';
@@ -2485,6 +2621,7 @@ class AppointmentController extends Controller
             $appointment->status = 'finished';
             $appointment->save();
             appointment_audit_log($appointment->id, "Appointment status changed to " . appointment_status_label('finished') . ".");
+            $this->releaseCatRoomIfUnused($appointment->cat_room_id, $appointment->id);
         }
 
         if ($isPackageAppointment && $appointment->metadata && isset($appointment->metadata['package_id'])) {
@@ -5316,6 +5453,899 @@ class AppointmentController extends Controller
 
     /*
     |--------------------------------------------------------------------------
+    | Boarding appointment detail page (ported from sunshine-laravel)
+    |--------------------------------------------------------------------------
+    | Backs the boarding branch of dashboard/appointment.blade.php. Kept identical
+    | to sunshine-laravel's AppointmentController so the two can be diffed. Admin
+    | keeps its own saveInvoice()/sendInvoiceEmail() for the other services, so
+    | sunshine's versions are saveInvoiceBoarding() and sendInvoiceEmailBoarding().
+    */
+
+    public function updateLateFeeSetting(Request $request, $id)
+    {
+        $request->validate(['apply_late_fee' => ['required', 'boolean']]);
+        $appointment = Appointment::with('service.category')->findOrFail($id);
+
+        if (($appointment->status ?? null) !== 'completed') {
+            return response()->json(['status' => false, 'message' => 'Late fees can only be changed for completed appointments.'], 422);
+        }
+
+        $appointment->apply_late_fee = $request->boolean('apply_late_fee');
+        $appointment->save();
+        $result = app(LateFeeService::class)->reconcile($appointment);
+        appointment_audit_log($appointment->id, 'Late checkout fee ' . ($appointment->apply_late_fee ? 'enabled' : 'disabled') . '.');
+
+        return response()->json(['status' => true, 'message' => 'Late fee setting updated.', 'pricing' => $result]);
+    }
+
+    public function exportSignedBoardingAgreementPDF($id)
+    {
+        $appointment = Appointment::with([
+            'pet',
+            'customer.profile',
+            'service',
+        ])->findOrFail($id);
+
+        if (!isBoardingService($appointment->service)) {
+            abort(404);
+        }
+
+        $checkin = Checkin::where('appointment_id', $appointment->id)->first();
+        $flows = [];
+
+        if ($checkin && !empty($checkin->flows)) {
+            $decodedFlows = is_array($checkin->flows)
+                ? $checkin->flows
+                : json_decode($checkin->flows, true);
+
+            $flows = is_array($decodedFlows) ? $decodedFlows : [];
+        }
+
+        $ownerFullName = trim((string) ($flows['boarding_owner_full_name'] ?? ''));
+        $signatureData = trim((string) ($flows['boarding_signature_data'] ?? ''));
+
+        if ($signatureData !== '' && preg_match('/^data:image\/[a-zA-Z0-9.+-]+;base64,/', $signatureData)) {
+            $parts = explode(',', $signatureData, 2);
+            if (count($parts) === 2) {
+                $normalizedPayload = preg_replace('/\s+/', '', $parts[1]);
+                $normalizedPayload = str_replace(' ', '+', $normalizedPayload);
+                $signatureData = $parts[0] . ',' . $normalizedPayload;
+            }
+        }
+
+        $agreementAccepted = in_array(($flows['boarding_agreement_accepted'] ?? null), [true, 'true', 1, '1'], true);
+        $vetAuthorized = in_array(($flows['boarding_vet_authorized'] ?? null), [true, 'true', 1, '1'], true);
+
+        $isSigned = $agreementAccepted
+            && $vetAuthorized
+            && $ownerFullName !== ''
+            && $signatureData !== '';
+
+        if (!$isSigned) {
+            return redirect()->back()->with('error', 'Signed boarding agreement was not found for this appointment.');
+        }
+
+        $signedAt = null;
+        $signedAtRaw = trim((string) ($flows['boarding_signature_signed_at'] ?? ''));
+        $signedDateRaw = trim((string) ($flows['boarding_signature_date'] ?? ''));
+
+        if ($signedAtRaw !== '') {
+            try {
+                $signedAt = Carbon::parse($signedAtRaw);
+            } catch (\Throwable $e) {
+                $signedAt = null;
+            }
+        }
+
+        if (!$signedAt && $signedDateRaw !== '') {
+            try {
+                $signedAt = Carbon::parse($signedDateRaw);
+            } catch (\Throwable $e) {
+                $signedAt = null;
+            }
+        }
+
+        $signedAtLabel = $signedAt
+            ? $signedAt->format('M j, Y g:i A')
+            : ($signedDateRaw !== '' ? $signedDateRaw : 'N/A');
+
+        $pets = $appointment->family_pets;
+        if ($pets->isEmpty() && $appointment->pet) {
+            $pets = collect([$appointment->pet]);
+        }
+
+        $petNames = $pets
+            ->pluck('name')
+            ->filter()
+            ->values();
+
+        $ownerProfileName = trim((string) (
+            (optional(optional($appointment->customer)->profile)->first_name ?? '') . ' ' .
+            (optional(optional($appointment->customer)->profile)->last_name ?? '')
+        ));
+
+        $checkinDateRaw = $checkin->date ?? $appointment->date ?? null;
+        $pickupDateRaw = $appointment->end_date ?? null;
+
+        if (!$pickupDateRaw && !empty($appointment->date) && !empty($appointment->end_time)) {
+            $pickupDateRaw = $appointment->date;
+        }
+
+        $checkinDateLabel = $checkinDateRaw ? Carbon::parse($checkinDateRaw)->format('M j, Y') : 'N/A';
+        $pickupDateLabel = $pickupDateRaw ? Carbon::parse($pickupDateRaw)->format('M j, Y') : 'N/A';
+
+        $viewData = [
+            'appointment' => $appointment,
+            'petNames' => $petNames,
+            'ownerDisplayName' => $ownerFullName !== '' ? $ownerFullName : ($ownerProfileName !== '' ? $ownerProfileName : 'N/A'),
+            'ownerProfileName' => $ownerProfileName,
+            'agreementAccepted' => $agreementAccepted,
+            'vetAuthorized' => $vetAuthorized,
+            'signatureData' => $signatureData,
+            'signatureRenderFallbackMessage' => null,
+            'signedAtLabel' => $signedAtLabel,
+            'checkinDateLabel' => $checkinDateLabel,
+            'pickupDateLabel' => $pickupDateLabel,
+        ];
+
+        $filename = 'signed-boarding-agreement-appointment-' . $appointment->id . '.pdf';
+
+        try {
+            $pdf = Pdf::loadView('appointments.signed-boarding-agreement-pdf', $viewData)
+                ->setPaper('letter');
+
+            return $pdf->download($filename);
+        } catch (\Throwable $e) {
+            $isGdRelatedError = str_contains(strtolower($e->getMessage()), 'php gd extension is required');
+
+            if ($signatureData !== '' && $isGdRelatedError) {
+                Log::warning('Signed agreement PDF fallback used due to GD-related DomPDF error.', [
+                    'appointment_id' => $appointment->id,
+                    'php_sapi' => PHP_SAPI,
+                    'php_binary' => PHP_BINARY,
+                    'php_ini_loaded_file' => php_ini_loaded_file(),
+                    'php_ini_scanned_files' => php_ini_scanned_files(),
+                    'gd_extension_loaded' => extension_loaded('gd'),
+                    'imagecreatefrompng_exists' => function_exists('imagecreatefrompng'),
+                    'exception_message' => $e->getMessage(),
+                ]);
+
+                $viewData['signatureData'] = '';
+                $viewData['signatureRenderFallbackMessage'] = 'Signature captured electronically (image preview unavailable because PHP GD extension is not available in the web server PHP runtime).';
+
+                $fallbackPdf = Pdf::loadView('appointments.signed-boarding-agreement-pdf', $viewData)
+                    ->setPaper('letter');
+
+                return $fallbackPdf->download($filename);
+            }
+
+            throw $e;
+        }
+    }
+
+    public function updateOnPropertyCareInformation(Request $request, $id)
+    {
+        $appointment = Appointment::with('service')->find($id);
+
+        if (!$appointment) {
+            return response()->json(['success' => false, 'message' => 'Appointment not found.'], 404);
+        }
+
+        if ($appointment->status !== 'in_progress' || !isBoardingService($appointment->service)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Care information can only be updated while a boarding appointment is On Property.',
+            ], 422);
+        }
+
+        $validated = $request->validate([
+            'flows' => 'required|array',
+            'room_assignments' => 'required|array',
+            'room_assignments.*.room_id' => 'required|integer|exists:rooms,id',
+            'room_assignments.*.kennel_id' => 'nullable|integer|exists:kennels,id',
+        ]);
+
+        $checkIn = Checkin::firstOrNew(['appointment_id' => $appointment->id]);
+        $existingFlows = [];
+        if (!empty($checkIn->flows)) {
+            $decodedFlows = is_array($checkIn->flows) ? $checkIn->flows : json_decode($checkIn->flows, true);
+            $existingFlows = is_array($decodedFlows) ? $decodedFlows : [];
+        }
+
+        $incomingFlows = $validated['flows'];
+        $careFlowKeys = [
+            'dry_food_list', 'dry_food', 'wet_food_list', 'wet_food',
+            'meds', 'meds_list', 'medications', 'medications_am', 'medications_pm',
+            'feeding_am', 'feeding_pm', 'feeding_lunch', 'pet_notes',
+        ];
+
+        foreach ($careFlowKeys as $key) {
+            if (array_key_exists($key, $incomingFlows)) {
+                $existingFlows[$key] = $incomingFlows[$key];
+            }
+        }
+
+        $existingPetSpecific = is_array($existingFlows['pet_specific'] ?? null)
+            ? $existingFlows['pet_specific']
+            : [];
+        $incomingPetSpecific = is_array($incomingFlows['pet_specific'] ?? null)
+            ? $incomingFlows['pet_specific']
+            : [];
+        $petCareKeys = ['care_notes', 'dry_food_list', 'dry_food', 'wet_food_list', 'wet_food', 'meds_list', 'meds'];
+
+        foreach ($incomingPetSpecific as $petId => $incomingPetFlows) {
+            if (!is_array($incomingPetFlows)) {
+                continue;
+            }
+
+            $petFlows = is_array($existingPetSpecific[$petId] ?? null)
+                ? $existingPetSpecific[$petId]
+                : [];
+
+            foreach ($petCareKeys as $key) {
+                if (array_key_exists($key, $incomingPetFlows)) {
+                    $petFlows[$key] = $incomingPetFlows[$key];
+                }
+            }
+
+            $existingPetSpecific[$petId] = $petFlows;
+        }
+
+        $existingFlows['pet_specific'] = $existingPetSpecific;
+        $checkIn->flows = json_encode($existingFlows);
+
+        $allowedPetIds = collect($appointment->family_pet_ids)
+            ->map(fn ($petId) => (int) $petId)
+            ->filter()
+            ->values();
+
+        if ($allowedPetIds->isEmpty() && $appointment->pet_id) {
+            $allowedPetIds = collect([(int) $appointment->pet_id]);
+        }
+
+        $roomAssignments = collect($validated['room_assignments'])
+            ->mapWithKeys(function ($assignment, $petId) {
+                return [(int) $petId => [
+                    'room_id' => (int) ($assignment['room_id'] ?? 0),
+                    'kennel_id' => !empty($assignment['kennel_id']) ? (int) $assignment['kennel_id'] : null,
+                ]];
+            })
+            ->all();
+
+        if (
+            collect(array_keys($roomAssignments))->sort()->values()->all() !== $allowedPetIds->sort()->values()->all()
+        ) {
+            return response()->json(['success' => false, 'message' => 'A room assignment is required for every pet.'], 422);
+        }
+
+        $kennelTypeValidation = $this->validateKennelPetTypes(
+            collect($roomAssignments)->groupBy(fn ($assignment) => (int) ($assignment['kennel_id'] ?? 0))->map(fn ($assignments) => collect($assignments)->keys()->map(fn ($petId) => (int) $petId)->all())->all()
+        );
+        if (!$kennelTypeValidation['valid']) {
+            return response()->json(['success' => false, 'message' => $kennelTypeValidation['message']], 422);
+        }
+
+        $startDateTime = Carbon::parse($appointment->date . ' ' . ($appointment->start_time ?: '00:00:00'));
+        $endDateTime = Carbon::parse(
+            ($appointment->end_date ?: $appointment->date) . ' ' . ($appointment->end_time ?: '23:59:59')
+        );
+        $assignmentConflict = $this->buildFamilyPetAssignmentConflictPayload(
+            $roomAssignments,
+            $startDateTime,
+            $endDateTime,
+            (int) $appointment->id
+        );
+
+        if (!empty($assignmentConflict['conflict'])) {
+            return response()->json([
+                'success' => false,
+                'message' => $assignmentConflict['message'] ?? 'The selected room or kennel is not available.',
+                'conflict' => $assignmentConflict,
+            ], 422);
+        }
+
+        $oldPrimaryRoomId = (int) ($appointment->cat_room_id ?? 0);
+        $primaryAssignment = collect($roomAssignments)->sortKeys()->first();
+        $primaryRoomId = (int) ($primaryAssignment['room_id'] ?? 0);
+        $primaryKennelId = (int) ($primaryAssignment['kennel_id'] ?? 0);
+        $metadata = is_array($appointment->metadata) ? $appointment->metadata : [];
+        $metadata['family_pet_assignments'] = $roomAssignments;
+        $metadata['family_kennel_assignments'] = collect($roomAssignments)
+            ->map(fn ($assignment) => $assignment['kennel_id'] ?? null)
+            ->filter()
+            ->all();
+        $metadata['assignment_room_id'] = $primaryRoomId ?: null;
+        $metadata['assignment_room_name'] = optional(Room::find($primaryRoomId))->name;
+        $metadata['assignment_kennel_id'] = $primaryKennelId ?: null;
+        $metadata['assignment_kennel_name'] = optional(Kennel::find($primaryKennelId))->name;
+
+        $appointment->metadata = $metadata;
+        $appointment->cat_room_id = $primaryRoomId ?: null;
+        $appointment->kennel_id = $primaryKennelId ?: null;
+        $appointment->save();
+
+        if ($oldPrimaryRoomId && $oldPrimaryRoomId !== $primaryRoomId) {
+            $this->releaseCatRoomIfUnused($oldPrimaryRoomId, $appointment->id);
+        }
+
+        $primaryRoom = $primaryRoomId ? Room::find($primaryRoomId) : null;
+        if ($primaryRoom && $this->getRoomAssignmentType($primaryRoom) === 'space') {
+            $this->markCatRoomOutOfService($primaryRoomId);
+        }
+
+        $checkIn->save();
+
+        $stayStart = Carbon::parse($appointment->date)->startOfDay();
+        $stayEnd = Carbon::parse($appointment->end_date ?: $appointment->date)->startOfDay();
+        $effectiveDate = Carbon::today()->max($stayStart)->min($stayEnd)->toDateString();
+
+        $scheduleResult = app(BoardingCareScheduleService::class)->regenerate(
+            $appointment,
+            $existingFlows,
+            $effectiveDate
+        );
+        appointment_audit_log(
+            $appointment->id,
+            'Care plan updated effective ' . $effectiveDate . ' (past and completed tasks preserved).'
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Care information saved successfully.',
+            'schedule' => $scheduleResult,
+        ]);
+    }
+
+    private function mergeBoardingWorkflowFlowsForDate(string $workflowDate, int $serviceId, array $baseFlows): array
+    {
+        $mergedFlows = $baseFlows;
+
+        $peerProcesses = Process::with('appointment.service')
+            ->where('date', $workflowDate)
+            ->whereHas('appointment', function ($query) use ($serviceId) {
+                $query->where('service_id', $serviceId);
+            })
+            ->orderByDesc('updated_at')
+            ->orderByDesc('created_at')
+            ->get();
+
+        foreach ($peerProcesses as $peerProcess) {
+            if (! $peerProcess->appointment || ! isBoardingService($peerProcess->appointment->service)) {
+                continue;
+            }
+
+            $peerFlows = $peerProcess->flows ? json_decode($peerProcess->flows, true) : [];
+            if (! is_array($peerFlows)) {
+                continue;
+            }
+
+            $mergedFlows = $this->mergeBoardingWorkflowArrays($mergedFlows, $peerFlows);
+        }
+
+        return $mergedFlows;
+    }
+
+    private function mergeBoardingWorkflowArrays(array $base, array $incoming): array
+    {
+        foreach ($incoming as $key => $value) {
+            if (! array_key_exists($key, $base)) {
+                $base[$key] = $value;
+                continue;
+            }
+
+            if ($key === 'selected_pet_ids' && is_array($value) && is_array($base[$key])) {
+                $base[$key] = array_values(array_unique(array_merge($base[$key], $value), SORT_REGULAR));
+                continue;
+            }
+
+            if (is_array($base[$key]) && is_array($value)) {
+                $base[$key] = $this->mergeBoardingWorkflowArrays($base[$key], $value);
+                continue;
+            }
+
+            if ($base[$key] === null || $base[$key] === '' || $base[$key] === []) {
+                $base[$key] = $value;
+            }
+        }
+
+        return $base;
+    }
+
+    private function saveInvoiceBoarding(Request $request, $id)
+    {
+        $rules = [
+            'action' => 'nullable|in:save,send,pay',
+            'invoice_number' => 'required|string',
+            'first_name' => 'required|string|max:255',
+            'last_name' => 'required|string|max:255',
+            'email' => 'required|email|max:255',
+            'issued_at' => 'nullable|date',
+            'due_date' => 'nullable|date',
+            'paid_at' => 'nullable|date',
+            'status' => 'nullable|in:draft,sent,partially_paid,paid,void,finalized',
+            'notes' => 'nullable|string|max:1000',
+            'items' => 'nullable|array',
+            'discount_title' => 'nullable|string|max:255',
+            'payment_amount' => 'nullable|numeric|min:0',
+            'payment_method' => 'nullable|in:cash,check,terminal_card',
+            'authorization_code' => 'nullable|string|max:255|required_if:payment_method,terminal_card',
+            'payment_notes' => 'nullable|string|max:1000',
+        ];
+
+        $action = strtolower((string) $request->input('action', 'save'));
+        if ($action === 'pay' && $request->filled('payment_amount')) {
+            $rules['payment_method'] = 'required|in:cash,check,terminal_card';
+        }
+
+        $request->validate($rules);
+        $paymentService = app(InvoicePaymentService::class);
+
+        $appointment = Appointment::find($id);
+        if (!$appointment) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Appointment not found.'
+            ], 404);
+        }
+
+        // Check if invoice already exists for this appointment
+        $invoice = Invoice::where('appointment_id', $appointment->id)->first();
+        $isExistingInvoice = (bool) $invoice;
+        $currentInvoiceStatus = strtolower((string) ($invoice->status ?? 'draft'));
+        if ($isExistingInvoice) {
+            $isInvoiceLocked = in_array($currentInvoiceStatus, ['paid', 'finalized'], true);
+            if ($isInvoiceLocked && !$this->canEditLockedInvoice(Auth::user())) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Invoice is finalized/paid and cannot be edited.'
+                ], 403);
+            }
+        }
+
+        if (!$invoice) {
+            $invoice = new Invoice;
+            $invoice->appointment_id = $appointment->id;
+        }
+
+        // Check if invoice number is unique (except for current invoice)
+        $existingInvoice = Invoice::where('invoice_number', $request->invoice_number)
+            ->where('id', '!=', $invoice->id ?? 0)
+            ->first();
+        if ($existingInvoice) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Invoice number already exists.'
+            ], 422);
+        }
+
+        $boardingPricing = isBoardingService($appointment->service)
+            ? getBoardingPricingBreakdown($appointment, null, $appointment->service)
+            : null;
+        $resolvedDiscountAmount = floatval($request->discount_amount ?? 0);
+        $resolvedDiscountTitle = $request->discount_title ?? '';
+
+        if (($boardingPricing['family_discount_amount'] ?? 0) > 0) {
+            $resolvedDiscountAmount = floatval($boardingPricing['family_discount_amount']);
+            $resolvedDiscountTitle = $boardingPricing['family_discount_title'] ?? 'Multi-Pet Discount';
+        }
+
+        $invoice->customer_id = $appointment->customer_id;
+        $invoice->invoice_number = $request->invoice_number;
+        $invoice->first_name = $request->first_name;
+        $invoice->last_name = $request->last_name;
+        $invoice->email = $request->email;
+        $invoice->issued_at = $request->issued_at ? Carbon::parse($request->issued_at) : null;
+        $invoice->due_date = $request->due_date ? Carbon::parse($request->due_date) : null;
+        $targetStatus = strtolower((string) ($request->status ?? $currentInvoiceStatus ?? 'draft'));
+        if ($action === 'send') {
+            $targetStatus = 'sent';
+        } elseif ($action === 'pay' && $request->filled('payment_amount') && $request->filled('payment_method')) {
+            $targetStatus = $currentInvoiceStatus ?: 'draft';
+        }
+
+        $invoice->discount_amount = $resolvedDiscountAmount;
+        $invoice->discount_title = $resolvedDiscountTitle;
+
+        $invoice->paid_at = $request->paid_at ? Carbon::parse($request->paid_at) : $invoice->paid_at;
+        $invoice->status = $targetStatus;
+        $invoice->notes = $request->notes;
+        $invoice->save();
+        $auditMessage = $action === 'send'
+            ? "Invoice sent. Invoice #{$invoice->invoice_number}."
+            : "Invoice saved. Invoice #{$invoice->invoice_number}.";
+        appointment_audit_log($appointment->id, $auditMessage);
+
+        // Save invoice items
+        $items = is_array($request->items) ? $request->items : [];
+        $checkin = Checkin::where('appointment_id', $appointment->id)->first();
+        $checkinFlows = $checkin && !empty($checkin->flows)
+            ? (is_array($checkin->flows) ? $checkin->flows : (json_decode($checkin->flows, true) ?: []))
+            : [];
+        $items = $this->normalizeBoardingSpecialFeeItems($appointment, $items, $checkinFlows);
+        $items = dedupeBoardingAutoFeeInvoiceItems($items);
+
+        $itemsForEmail = [];
+        // Always delete existing items so that removed items are properly cleared.
+        InvoiceItem::where('invoice_id', $invoice->id)->delete();
+        if (is_array($items)) {
+            // Add new items
+            foreach ($items as $itemData) {
+                $item = new InvoiceItem;
+                $item->invoice_id = $invoice->id;
+                $item->item_name = $itemData['description'] ?? '';
+                $item->price = $itemData['price'] ?? 0;
+                $item->item_type = $itemData['type'] ?? 'service';
+                $item->save();
+                $itemsForEmail[] = [
+                    'description' => $itemData['description'] ?? '',
+                    'price' => $itemData['price'] ?? 0
+                ];
+            }
+        }
+
+        $invoice->load('items');
+        $invoiceItemSummary = $this->summarizeInvoiceItemsFromInvoice($invoice);
+        $appliedDiscountAmount = floatval($invoice->discount_amount ?? 0);
+        $invoiceTotals = $this->calculateInvoiceTotals($appointment, $invoiceItemSummary, $appliedDiscountAmount);
+        $invoiceSubtotal = $invoiceTotals['subtotal'];
+        $invoiceTotalAmount = $invoiceTotals['total'];
+
+        $appointment->estimated_price = round($invoiceSubtotal, 2);
+        $appointment->save();
+
+        $discountInfo = [
+            'discount_title' => $resolvedDiscountTitle,
+            'discount_amount' => $resolvedDiscountAmount,
+        ];
+
+        $paymentLink = null;
+        $paymentSummary = $paymentService->syncInvoiceState($invoice->fresh());
+        $remainingBalance = round(floatval($paymentSummary['balance_due'] ?? 0), 2);
+        $invoiceTotalAmount = round(floatval($paymentSummary['total_amount'] ?? $invoiceTotalAmount), 2);
+        $transactionPayload = null;
+
+        if ($action === 'pay' && $request->payment_amount && $request->payment_method) {
+            $paymentResult = $paymentService->recordPayment($invoice->fresh(), [
+                'appointment_id' => $appointment->id,
+                'user_id' => $appointment->customer_id,
+                'tran_date' => Carbon::now(),
+                'amount' => round(floatval($request->payment_amount), 2),
+                'payment_method' => $request->payment_method,
+                'authorization_code' => $request->payment_method === 'terminal_card'
+                    ? trim((string) $request->authorization_code)
+                    : null,
+                'notes' => $request->payment_notes,
+            ]);
+
+            $paymentSummary = $paymentResult['summary'];
+            $remainingBalance = round(floatval($paymentSummary['balance_due'] ?? 0), 2);
+
+            if ($paymentResult['created']) {
+                // Admin adaptation: admin's notifications.metadata column is varchar(255) (sunshine's database has it
+                // as text), so the payment notification can fail to insert. The payment itself is already recorded.
+                try {
+                    $paymentService->createAdminPaymentNotifications($invoice->fresh(), $paymentResult['transaction'], $paymentSummary);
+                } catch (\Throwable $e) {
+                    Log::warning('Failed to create invoice payment notifications.', [
+                        'appointment_id' => $appointment->id,
+                        'invoice_id' => $invoice->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            $transactionPayload = [
+                'id' => $paymentResult['transaction']->id,
+                'amount' => round(floatval($paymentResult['transaction']->amount ?? 0), 2),
+                'payment_method' => $paymentResult['transaction']->payment_method,
+                'payment_method_label' => $paymentResult['transaction']->payment_method === 'terminal_card'
+                    ? 'Credit Card (Terminal)'
+                    : ucfirst(strtolower((string) ($paymentResult['transaction']->payment_method ?? 'Payment'))),
+                'authorization_code' => $paymentResult['transaction']->authorization_code,
+                'tran_date' => optional($paymentResult['transaction']->tran_date)->format('Y-m-d H:i:s'),
+                'notes' => $paymentResult['transaction']->notes,
+            ];
+
+            appointment_audit_log($appointment->id, ($paymentSummary['status'] ?? '') === 'paid'
+                ? "Invoice marked as paid. Invoice #{$invoice->invoice_number}."
+                : "Invoice payment recorded with remaining balance. Invoice #{$invoice->invoice_number}.");
+        }
+
+        if ($action === 'send') {
+            $sendAmount = round(floatval($paymentSummary['balance_due'] ?? 0), 2);
+            // Admin adaptation: the online payment page (sunshine-laravel's web\PaymentController) is not in admin,
+            // so no payment link is created or emailed until that page exists here.
+            if ($sendAmount > 0 && class_exists(\App\Http\Controllers\web\PaymentController::class)) {
+                // Reuse existing pending/processing payment link for this invoice if present
+                $paymentLink = \App\Models\PaymentLink::where('invoice_id', $invoice->id)
+                    ->whereIn('status', ['pending', 'processing'])
+                    ->latest()
+                    ->first();
+
+                if ($paymentLink) {
+                    $paymentLink->amount = $sendAmount;
+                    $paymentLink->currency = 'usd';
+                    $paymentLink->expires_at = now()->addDays(30);
+                    $paymentLink->save();
+                } else {
+                    $paymentLink = createPaymentLink($invoice, $appointment, $sendAmount);
+                }
+            }
+        }
+
+        $emailFailed = false;
+        if ($action === 'send') {
+            try {
+                $this->sendInvoiceEmailBoarding($invoice, $appointment, $items, $discountInfo, $paymentLink);
+            } catch (\Throwable $e) {
+                $emailFailed = true;
+                Log::error('Failed to send invoice email after saving invoice.', [
+                    'appointment_id' => $appointment->id,
+                    'invoice_id' => $invoice->id,
+                    'invoice_status' => $action,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        $responseMessage = $action === 'send'
+            ? ($paymentLink
+                ? 'Invoice saved and sent successfully. <br>Payment link sent by email. Please ask the customer to complete payment using the link.'
+                : 'Invoice saved and sent successfully.')
+            : (($action === 'pay' && $request->payment_amount && $request->payment_method)
+                ? ($remainingBalance > 0
+                    ? 'Invoice saved and partial payment recorded successfully. Remaining balance: $' . number_format($remainingBalance, 2) . '.'
+                    : 'Invoice saved and payment recorded successfully.')
+                : 'Invoice saved successfully.');
+
+        if ($emailFailed) {
+            $responseMessage = 'Invoice saved successfully, but sending email failed.';
+        }
+
+        return response()->json([
+            'status' => true,
+            'message' => $responseMessage,
+            'email_failed' => $emailFailed,
+            'invoice_id' => $invoice->id,
+            'invoice_total' => $invoiceTotalAmount,
+            'remaining_balance' => $remainingBalance,
+            'payment_summary' => $paymentSummary,
+            'transaction' => $transactionPayload,
+        ]);
+    }
+
+    private function calculateInvoiceTotals($appointment, array $invoiceItemSummary, float $discountAmount): array
+    {
+        $subtotal = max(0, $invoiceItemSummary['total_service_price'] - $discountAmount + $invoiceItemSummary['total_inventory_amount']);
+        $stateTaxRate = isBoardingService($appointment->service) ? floatval(config('billing.state_tax_rate', 7)) : 0;
+        $stateTaxAmount = round($subtotal * ($stateTaxRate / 100), 2);
+
+        return [
+            'subtotal' => $subtotal,
+            'state_tax_rate' => $stateTaxRate,
+            'state_tax_amount' => $stateTaxAmount,
+            'total' => round($subtotal + $stateTaxAmount, 2),
+        ];
+    }
+
+    private function canEditLockedInvoice(?User $user): bool
+    {
+        if (!$user) {
+            return false;
+        }
+
+        return $user->roles()->whereRaw('LOWER(title) in (?, ?)', ['owner', 'admin'])->exists();
+    }
+
+    private function sendInvoiceEmailBoarding($invoice, $appointment, $items, $discountInfo = [], $paymentLinkOrUrl = null)
+    {
+        $invoice->loadMissing('items');
+        $invoiceItemSummary = $this->summarizeInvoiceItemsFromInvoice($invoice);
+
+        $mainServiceItems = $invoiceItemSummary['main_service_items'];
+        $additionalServiceItems = [];
+        $inventoryItems = $invoiceItemSummary['inventory_items'];
+        $additionalServicesGroupedByPet = [];
+        $totalServicePrice = $invoiceItemSummary['total_service_price'];
+        $totalInventoryAmount = $invoiceItemSummary['total_inventory_amount'];
+        $fleaTickFee = 0;
+        $lateCheckoutFee = 0;
+        $shouldApplyLateCheckoutFee = false;
+
+        $discountAmount = floatval($discountInfo['discount_amount'] ?? 0);
+        $subtotalAmount = max(0, $totalServicePrice - $discountAmount + $totalInventoryAmount);
+        $stateTaxRate = isBoardingService($appointment->service) ? floatval(config('billing.state_tax_rate', 7)) : 0;
+        $stateTaxAmount = round($subtotalAmount * ($stateTaxRate / 100), 2);
+        $totalAmount = $subtotalAmount + $stateTaxAmount;
+        $paymentSummary = app(InvoicePaymentService::class)->buildSummary($invoice);
+
+        $paymentLinkUrl = null;
+        if (is_string($paymentLinkOrUrl) && !empty($paymentLinkOrUrl)) {
+            $paymentLinkUrl = $paymentLinkOrUrl;
+        } elseif ($paymentLinkOrUrl) {
+            $paymentLinkUrl = getPaymentLinkUrl($paymentLinkOrUrl);
+        }
+
+        $emailData = [
+            'invoice_number' => $invoice->invoice_number,
+            'first_name' => $invoice->first_name,
+            'last_name' => $invoice->last_name,
+            'issued_at' => $invoice->issued_at,
+            'due_date' => $invoice->due_date,
+            'status' => $invoice->status,
+            'notes' => $invoice->notes,
+            'main_service_items' => $mainServiceItems,
+            'additional_service_items' => $additionalServiceItems,
+            'additional_services_grouped_by_pet' => $additionalServicesGroupedByPet,
+            'inventory_items' => $inventoryItems,
+            'total_service_price' => $totalServicePrice,
+            'estimated_price' => $totalServicePrice,
+            'discount_title' => $discountInfo['discount_title'] ?? null,
+            'discount_amount' => $discountAmount,
+            'total_inventory_amount' => $totalInventoryAmount,
+            'subtotal_amount' => $subtotalAmount,
+            'state_tax_rate' => $stateTaxRate,
+            'state_tax_amount' => $stateTaxAmount,
+            'flea_tick_fee' => 0,
+            'flea_tick_checked_pet_count' => 0,
+            'late_checkout_hours' => 0,
+            'late_checkout_daycare_fee' => 0,
+            'total' => $totalAmount,
+            'total_amount' => $totalAmount,
+            'online_payment' => round(floatval($paymentSummary['online_payment'] ?? 0), 2),
+            'in_person_payment' => round(floatval($paymentSummary['in_person_payment'] ?? 0), 2),
+            'payments_received' => round(floatval($paymentSummary['payments_received'] ?? 0), 2),
+            'balance_due' => round(floatval($paymentSummary['balance_due'] ?? $totalAmount), 2),
+            'payment_link_url' => $paymentLinkUrl,
+        ];
+
+        try {
+            Mail::to($invoice->email)->send(new InvoiceMail($emailData));
+            Log::info('Invoice email sent', ['invoice_id' => $invoice->id, 'to' => $invoice->email]);
+        } catch (\Exception $e) {
+            Log::error('Failed to send invoice email', ['invoice_id' => $invoice->id, 'to' => $invoice->email, 'error' => $e->getMessage()]);
+        }
+    }
+
+    private function summarizeInvoiceItemsFromInvoice(Invoice $invoice): array
+    {
+        $invoiceItems = $invoice->relationLoaded('items')
+            ? $invoice->items
+            : $invoice->items()->get();
+        $invoiceItems = collect(dedupeBoardingAutoFeeInvoiceItems($invoiceItems))->values();
+
+        $mainServiceItems = [];
+        $inventoryItems = [];
+        $totalServicePrice = 0;
+        $totalInventoryAmount = 0;
+
+        foreach ($invoiceItems as $invoiceItem) {
+            $itemType = strtolower(trim((string) ($invoiceItem->item_type ?? 'service')));
+            $itemDescription = trim((string) ($invoiceItem->item_name ?? ''));
+            $itemPrice = floatval($invoiceItem->price ?? 0);
+
+            if ($itemType === 'inventory') {
+                $inventoryItems[] = [
+                    'description' => $itemDescription,
+                    'price' => $itemPrice,
+                ];
+                $totalInventoryAmount += $itemPrice;
+                continue;
+            }
+
+            $mainServiceItems[] = [
+                'description' => $itemDescription,
+                'price' => $itemPrice,
+            ];
+            $totalServicePrice += $itemPrice;
+        }
+
+        return [
+            'main_service_items' => $mainServiceItems,
+            'additional_service_items' => [],
+            'inventory_items' => $inventoryItems,
+            'total_service_price' => $totalServicePrice,
+            'total_inventory_amount' => $totalInventoryAmount,
+        ];
+    }
+
+    private function resolveBoardingLateCheckoutDaycareFee(Appointment $appointment): array
+    {
+        $breakdown = getBoardingLateCheckoutDaycareBreakdown($appointment, null, 1);
+
+        return [
+            'scheduled_pickup_at' => $breakdown['scheduled_pickup_at'] ?? null,
+            'actual_checkout_at' => $breakdown['actual_checkout_at'] ?? null,
+            'is_late' => (($breakdown['late_seconds'] ?? 0) > 0),
+            'late_seconds' => intval($breakdown['late_seconds'] ?? 0),
+            'late_hours' => floatval($breakdown['late_hours'] ?? 0),
+            'threshold_hours' => intval($breakdown['threshold_hours'] ?? 1),
+            'daycare_price' => floatval($breakdown['daycare_price'] ?? 0),
+            'daycare_duration' => floatval($breakdown['daycare_duration'] ?? 0),
+            'hourly_rate' => floatval($breakdown['hourly_rate'] ?? 0),
+            'late_fee' => floatval($breakdown['fee'] ?? 0),
+            'should_apply_fee' => (bool) ($breakdown['should_apply_fee'] ?? false),
+        ];
+    }
+
+    private function isFleaTickFeeDescription($description): bool
+    {
+        $normalized = strtolower(trim((string) $description));
+        return in_array($normalized, ['flea/tick fee', 'flea/tick detection fee'], true);
+    }
+
+    private function isLateCheckoutDaycareFeeDescription($description): bool
+    {
+        $normalized = strtolower(trim((string) $description));
+        return in_array($normalized, ['late fee', 'late checkout daycare fee', 'late checkout fee'], true);
+    }
+
+    private function normalizeBoardingSpecialFeeItems(Appointment $appointment, array $items, array $checkinFlows = [], ?array $lateCheckoutData = null): array
+    {
+        if (!isBoardingService($appointment->service)) {
+            return $items;
+        }
+
+        $fleaTickFee = floatval(getBoardingFleaTickBreakdown($appointment, $checkinFlows)['amount'] ?? 0);
+        $lateCheckoutData = $lateCheckoutData ?: $this->resolveBoardingLateCheckoutDaycareFee($appointment);
+        $lateCheckoutFee = floatval($lateCheckoutData['late_fee'] ?? 0);
+        $shouldApplyLateCheckoutFee = (bool) ($lateCheckoutData['should_apply_fee'] ?? false);
+
+        $normalizedItems = [];
+        $hasFleaTickItem = false;
+        $hasLateCheckoutDaycareFeeItem = false;
+
+        foreach ($items as $itemData) {
+            $description = trim((string) ($itemData['description'] ?? ''));
+            $isFleaTickItem = $this->isFleaTickFeeDescription($description);
+            $isLateCheckoutDaycareFeeItem = $this->isLateCheckoutDaycareFeeDescription($description);
+
+            if ($isFleaTickItem) {
+                if ($fleaTickFee <= 0 || $hasFleaTickItem) {
+                    continue;
+                }
+
+                $hasFleaTickItem = true;
+                $itemData['description'] = 'Flea/Tick Detection Fee';
+                $itemData['price'] = $fleaTickFee;
+                $itemData['type'] = 'service';
+            }
+
+            if ($isLateCheckoutDaycareFeeItem) {
+                if (!$shouldApplyLateCheckoutFee || $lateCheckoutFee <= 0 || $hasLateCheckoutDaycareFeeItem) {
+                    continue;
+                }
+
+                $hasLateCheckoutDaycareFeeItem = true;
+                $itemData['description'] = 'Late Fee';
+                $itemData['price'] = $lateCheckoutFee;
+                $itemData['type'] = 'service';
+            }
+
+            $normalizedItems[] = $itemData;
+        }
+
+        if ($fleaTickFee > 0 && !$hasFleaTickItem) {
+            $normalizedItems[] = [
+                'description' => 'Flea/Tick Detection Fee',
+                'price' => $fleaTickFee,
+                'type' => 'service',
+            ];
+        }
+
+        if ($shouldApplyLateCheckoutFee && $lateCheckoutFee > 0 && !$hasLateCheckoutDaycareFeeItem) {
+            $normalizedItems[] = [
+                'description' => 'Late Fee',
+                'price' => $lateCheckoutFee,
+                'type' => 'service',
+            ];
+        }
+
+        return $normalizedItems;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
     | Required vaccines (sunshine-laravel's App\Services\PetVaccineValidator)
     |--------------------------------------------------------------------------
     */
@@ -5499,6 +6529,12 @@ class AppointmentController extends Controller
         if (in_array($newStatus, ['cancelled', 'no_show'])) {
             $this->saveCancellationRecord($appointment, $newStatus);
             $this->releaseTimeSlots($appointment);
+        }
+
+        if (in_array($newStatus, appointment_non_occupying_statuses(), true)) {
+            $this->releaseCatRoomIfUnused($appointment->cat_room_id, $appointment->id);
+        } elseif ($newStatus === 'checked_in' && isBoardingService($appointment->service)) {
+            $this->markCatRoomOutOfService($appointment->cat_room_id);
         }
 
         return redirect()->route('archives')->with([

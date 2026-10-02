@@ -688,14 +688,16 @@ class DashboardController extends Controller
                     $computedEstimatedPrice = max(0, $boardingBaseTotal + $additionalServiceTotal - $familyDiscountAmount + $fleaTickFee + $lateCheckoutDaycareFee);
                 } else {
                     $computedEstimatedPrice = $resolveAppointmentServicePrice($appointment->service, $appointment->pet->size, $appointment->metadata);
-                }
 
-                $additionalServiceIds = explode(',', $appointment->additional_service_ids ?? '');
-                foreach ($additionalServiceIds as $serviceId) {
-                    if (!empty($serviceId)) {
-                        $service = Service::find($serviceId);
-                        if ($service) {
-                            $computedEstimatedPrice += $resolveAppointmentServicePrice($service, $appointment->pet->size);
+                    // Boarding already totals its additional services per pet above (as sunshine-laravel does),
+                    // so this loop only runs for the other services.
+                    $additionalServiceIds = explode(',', $appointment->additional_service_ids ?? '');
+                    foreach ($additionalServiceIds as $serviceId) {
+                        if (!empty($serviceId)) {
+                            $service = Service::find($serviceId);
+                            if ($service) {
+                                $computedEstimatedPrice += $resolveAppointmentServicePrice($service, $appointment->pet->size);
+                            }
                         }
                     }
                 }
@@ -948,7 +950,7 @@ class DashboardController extends Controller
                 });
         }
 
-        return view('dashboard.appointment', compact('appointment', 'staffs', 'checkedIn', 'process', 'checkout', 'invoice', 'additionalServices', 'lastAppointmentRatings', 'invoiceDiscountRules', 'petBehaviors', 'dbEstimatedPrice', 'assignmentLabel', 'staySummary', 'lateCheckoutDaycareFeeDisplay', 'paymentSummary', 'invoiceTransactions', 'careRooms', 'entireCareSchedule'));
+        return view('dashboard.appointment', compact('appointment', 'staffs', 'checkedIn', 'process', 'checkout', 'invoice', 'additionalServices', 'lastAppointmentRatings', 'invoiceDiscountRules', 'petBehaviors', 'dbEstimatedPrice', 'assignmentLabel', 'staySummary', 'lateCheckoutDaycareFeeDisplay', 'paymentSummary', 'invoiceTransactions', 'careRooms', 'entireCareSchedule', 'initialTemperament'));
     }
 
     private function buildCheckoutStaySummary(Appointment $appointment, ?Checkin $checkin): array
