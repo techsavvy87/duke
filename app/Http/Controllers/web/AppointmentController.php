@@ -30,6 +30,7 @@ use App\Models\PetVaccination;
 use App\Services\InvoicePaymentService;
 use App\Services\BoardingCareScheduleService;
 use App\Services\LateFeeService;
+use App\Services\AppointmentBookingNotifier;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
@@ -780,10 +781,10 @@ class AppointmentController extends Controller
         ]);
     }
 
-    public function create(Request $request)
+    public function create(Request $request, AppointmentBookingNotifier $bookingNotifier)
     {
         if ($this->isBoardingServiceId($request->input('service'))) {
-            return $this->createBoarding($request);
+            return $this->createBoarding($request, $bookingNotifier);
         }
 
         $request->validate([
@@ -917,6 +918,8 @@ class AppointmentController extends Controller
 
             $appointment->metadata = !empty($metadata) ? $metadata : null;
             $appointment->save();
+
+            $bookingNotifier->sendConfirmation($appointment, Auth::id());
 
             if ($appointment->status === 'checked_in') {
                 appointment_audit_log($appointment->id, "Appointment is created.");
@@ -1220,11 +1223,11 @@ class AppointmentController extends Controller
         ));
     }
 
-    public function update(Request $request)
+    public function update(Request $request, AppointmentBookingNotifier $bookingNotifier)
     {
         if ($this->isBoardingServiceId($request->input('service'))) {
             $previousAppointment = Appointment::with('service.category')->find($request->input('appointment_id'));
-            $response = $this->updateBoarding($request);
+            $response = $this->updateBoarding($request, $bookingNotifier);
             $this->clearPreviousServiceData($previousAppointment);
 
             return $response;
@@ -1394,6 +1397,10 @@ class AppointmentController extends Controller
             appointment_audit_log($appointment->id, $label);
         } elseif ($oldStatus === $appointment->status) {
             appointment_audit_log($appointment->id, "Appointment updated.");
+        }
+
+        if ($appointment->status === 'cancelled' && $oldStatus !== 'cancelled') {
+            $bookingNotifier->sendCancellation($appointment, Auth::id());
         }
 
         return redirect()->route('appointments')->with([
@@ -2797,7 +2804,7 @@ class AppointmentController extends Controller
     | and getBoardingValidationInfo().
     */
 
-    private function createBoarding(Request $request)
+    private function createBoarding(Request $request, AppointmentBookingNotifier $bookingNotifier)
     {
         $request->validate([
             'appointment_notes' => 'nullable|string',
@@ -3372,7 +3379,7 @@ class AppointmentController extends Controller
         $appointment->metadata = !empty($metadata) ? $metadata : null;
         $appointment->save();
 
-        // $bookingNotifier->sendConfirmation($appointment, Auth::id());
+        $bookingNotifier->sendConfirmation($appointment, Auth::id());
 
         if ($appointment->status === 'checked_in') {
             appointment_audit_log($appointment->id, 'Appointment is created.');
@@ -3429,7 +3436,7 @@ class AppointmentController extends Controller
         ]);
     }
 
-    private function updateBoarding(Request $request)
+    private function updateBoarding(Request $request, AppointmentBookingNotifier $bookingNotifier)
     {
         $request->validate([
             'appointment_notes' => 'nullable|string',
@@ -4003,7 +4010,7 @@ class AppointmentController extends Controller
         }
 
         if ($appointment->status === 'cancelled' && $oldStatus !== 'cancelled') {
-            // $bookingNotifier->sendCancellation($appointment, Auth::id());
+            $bookingNotifier->sendCancellation($appointment, Auth::id());
         }
 
         return redirect()->route('appointments')->with([
@@ -6512,19 +6519,24 @@ class AppointmentController extends Controller
         ];
     }
 
-    public function updateStatus(Request $request, $id)
+    public function updateStatus(Request $request, $id, AppointmentBookingNotifier $bookingNotifier)
     {
         $request->validate([
             'status' => 'required|in:cancelled,no_show,checked_in',
         ]);
 
         $appointment = Appointment::findOrFail($id);
+        $oldStatus = $appointment->status;
         $newStatus = $request->status;
 
         $appointment->status = $newStatus;
         $appointment->save();
         $label = $newStatus === 'checked_in' ? "Appointment is created." : "Appointment status changed to " . appointment_status_label($newStatus, $appointment->service) . ".";
         appointment_audit_log($appointment->id, $label);
+
+        if ($newStatus === 'cancelled' && $oldStatus !== 'cancelled') {
+            $bookingNotifier->sendCancellation($appointment, Auth::id());
+        }
 
         if (in_array($newStatus, ['cancelled', 'no_show'])) {
             $this->saveCancellationRecord($appointment, $newStatus);
