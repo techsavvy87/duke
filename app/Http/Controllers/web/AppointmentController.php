@@ -25,6 +25,7 @@ use App\Models\Package;
 use App\Models\CustomerPackage;
 use App\Models\Notification;
 use App\Models\Kennel;
+use App\Models\KennelBlock;
 use App\Models\Room;
 use App\Models\PetVaccination;
 use App\Services\InvoicePaymentService;
@@ -330,6 +331,55 @@ class AppointmentController extends Controller
         }
 
         return response()->json($timeSlots);
+    }
+
+    public function getAvailableKennels(Request $request)
+    {
+        $request->validate([
+            'boarding_start_datetime' => 'required|date',
+            'boarding_end_datetime' => 'required|date|after:boarding_start_datetime',
+            'appointment_id' => 'nullable|exists:appointments,id',
+            'selected_kennel_id' => 'nullable|exists:kennels,id',
+            'pet_ids' => 'nullable|array',
+            'pet_ids.*' => 'exists:pet_profiles,id',
+        ]);
+
+        $startDateTime = Carbon::parse($request->boarding_start_datetime);
+        $endDateTime = Carbon::parse($request->boarding_end_datetime);
+        $excludeAppointmentId = $request->filled('appointment_id') ? (int) $request->appointment_id : null;
+        $selectedKennelId = $request->filled('selected_kennel_id') ? (int) $request->selected_kennel_id : null;
+        $petIds = collect($request->input('pet_ids', []))->map(fn ($id) => (int) $id)->filter()->values()->all();
+
+        $overlappingKennelIds = $this->getOverlappingBoardingAppointmentsQuery($startDateTime, $endDateTime, $excludeAppointmentId)
+            ->whereNotNull('kennel_id')
+            ->pluck('kennel_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        $blockedKennelIds = KennelBlock::overlapping($startDateTime->toDateString(), $endDateTime->toDateString())
+            ->pluck('kennel_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        $kennels = Kennel::where(function ($query) use ($selectedKennelId) {
+                $query->where('status', 'In Service');
+
+                if ($selectedKennelId) {
+                    $query->orWhere('id', $selectedKennelId);
+                }
+            })
+            ->whereNotIn('id', $overlappingKennelIds)
+            ->whereNotIn('id', $blockedKennelIds)
+            ->orderBy('name')
+            ->get(['id', 'name', 'status', 'kennel_type'])
+            ->filter(function ($kennel) use ($petIds) {
+                return empty($petIds) || $this->validateKennelPetTypes([(int) $kennel->id => $petIds])['valid'];
+            })
+            ->values();
+
+        return response()->json($kennels);
     }
 
     private function getAlaCarteTimeSlots($serviceId, $date, $petSize, $secondaryServiceIds)
@@ -4174,11 +4224,9 @@ class AppointmentController extends Controller
             return 'shared';
         }
 
-        $hasNonSmall = $pets->contains(function ($pet) {
-            return !$this->isSmallPetSize($pet['size'] ?? 'medium');
-        });
-
-        return $hasNonSmall ? 'individual' : 'shared';
+        // Admin adaptation: every pet of a family stay gets its own room and kennel,
+        // sunshine only splits the family when one of the pets is not small.
+        return 'individual';
     }
 
     private function normalizeFamilyKennelAssignmentsInput($rawAssignments, array $petIds): array

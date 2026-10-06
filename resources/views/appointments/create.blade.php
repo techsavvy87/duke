@@ -1766,9 +1766,9 @@
         return 'shared';
       }
 
-      return selectedPets.some(function(pet) {
-        return pet.size !== 'small';
-      }) ? 'individual' : 'shared';
+      // Admin adaptation: every pet of a family stay gets its own room and kennel,
+      // sunshine only splits the family when one of the pets is not small.
+      return 'individual';
     }
 
     function getRoomById(roomId) {
