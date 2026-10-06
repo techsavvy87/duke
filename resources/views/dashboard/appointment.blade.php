@@ -8284,12 +8284,25 @@
         @endif
       @endif
       @if ($appointment->status === 'completed' && !isGroupClassService($appointment->service))
-        <div class="card card-border bg-base-100 mt-3">
+        @php
+          $canOverrideInvoiceLock = auth()->check()
+            && auth()->user()->roles()->whereRaw('LOWER(title) in (?, ?)', ['owner', 'admin'])->exists();
+          $isInvoiceEditingLocked = $invoice
+            && in_array(strtolower((string) ($invoice->status ?? '')), ['paid', 'finalized'], true)
+            && !$canOverrideInvoiceLock;
+        @endphp
+        <div id="invoice_section_card" class="card card-border bg-base-100 mt-3">
           <div class="card-body gap-0">
             <div class="bg-base-200 rounded-box collapse collapse-arrow">
               <input aria-label="Collapse trigger" type="checkbox" name="accordion-multiple" />
               <div class="collapse-title font-medium py-1">Invoice</div>
               <div class="collapse-content bg-base-100">
+                @if($isInvoiceEditingLocked)
+                  <div class="alert alert-soft alert-warning mb-3">
+                    <span class="iconify lucide--lock size-4"></span>
+                    <span>Invoice is finalized/paid and locked. Only owner/admin can edit.</span>
+                  </div>
+                @endif
                 <div class="text-sm mt-3 space-y-1">
                   <fieldset class="fieldset">
                     <legend class="fieldset-legend">Invoice Number*</legend>
@@ -8309,31 +8322,6 @@
                     <legend class="fieldset-legend">Email*</legend>
                     <input type="text" id="email" class="input input-bordered w-full input-sm" value="{{ $invoice ? $invoice->email : ($appointment->customer->email ?? '') }}" placeholder="Enter email" />
                   </fieldset>
-                  <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                    <fieldset class="fieldset">
-                      <legend class="fieldset-legend">Issued At*</legend>
-                      <input type="datetime-local" id="issued_at" class="input w-full input-sm" value="{{ $invoice ? ($invoice->issued_at ? \Carbon\Carbon::parse($invoice->issued_at)->format('Y-m-d\TH:i') : '') : \Carbon\Carbon::now()->format('Y-m-d\TH:i') }}"/>
-                    </fieldset>
-                    <fieldset class="fieldset">
-                      <legend class="fieldset-legend">Due Date</legend>
-                      <input type="date" id="due_date" class="input w-full input-sm" value="{{ $invoice ? $invoice->due_date : '' }}"/>
-                    </fieldset>
-                  </div>
-                  <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                    <fieldset class="fieldset">
-                      <legend class="fieldset-legend">Paid At</legend>
-                      <input type="datetime-local" id="paid_at" class="input w-full input-sm" value="{{ $invoice ? $invoice->paid_at : '' }}"/>
-                    </fieldset>
-                    <fieldset class="fieldset">
-                      <legend class="fieldset-legend">Status</legend>
-                      <select class="select w-full input-sm" id="status" value="{{ $invoice ? $invoice->status : '' }}">
-                        <option value="draft" {{ $invoice && $invoice->status == 'draft' ? 'selected' : '' }}>Draft</option>
-                        <option value="sent" {{ $invoice && $invoice->status == 'sent' ? 'selected' : '' }}>Sent</option>
-                        <option value="paid" {{ $invoice && $invoice->status == 'paid' ? 'selected' : '' }}>Paid</option>
-                        <option value="void" {{ $invoice && $invoice->status == 'void' ? 'selected' : '' }}>Void</option>
-                      </select>
-                    </fieldset>
-                  </div>
                   <fieldset class="fieldset">
                     <legend class="fieldset-legend">Notes</legend>
                     <textarea placeholder="Type here" id="invoice_notes" class="textarea w-full">{{ $invoice ? $invoice->notes : '' }}</textarea>
@@ -8341,11 +8329,15 @@
                   <fieldset class="fieldset">
                     <legend class="fieldset-legend">Inventory Items</legend>
                     <div class="flex items-center gap-2">
-                      <select class="select w-full select-sm" name="inventory_item" id="inventory_item">
+                      <select class="select w-full select-sm" name="inventory_item" id="inventory_item" {{ $isInvoiceEditingLocked || !canEditInvoice() ? 'disabled' : '' }}>
                       </select>
-                      <button type="button" class="btn btn-sm btn-outline btn-primary" onclick="addInventoryItem()">
+                      <button type="button" class="btn btn-sm btn-outline btn-primary" onclick="addInventoryItem()" {{ $isInvoiceEditingLocked || !canEditInvoice() ? 'disabled' : '' }} title="{{ !canEditInvoice() ? 'Only the facility owner can add items.' : ($isInvoiceEditingLocked ? 'Invoice is locked.' : '') }}">
                         <span class="iconify lucide--plus size-3"></span>
                         <span class="hidden sm:inline">Add</span>
+                      </button>
+                      <button type="button" class="btn btn-sm btn-outline" id="add_line_item_btn" onclick="addCustomLineItem()" {{ $isInvoiceEditingLocked || !canEditInvoice() ? 'disabled' : '' }} title="{{ !canEditInvoice() ? 'Only the facility owner can add items.' : ($isInvoiceEditingLocked ? 'Invoice is locked.' : '') }}">
+                        <span class="iconify lucide--plus size-3"></span>
+                        <span class="hidden sm:inline">Add Line Item</span>
                       </button>
                     </div>
                   </fieldset>
@@ -8365,6 +8357,7 @@
                         <th>#</th>
                         <th>Item</th>
                         <th>Price</th>
+                        <th>Action</th>
                       </tr>
                     </thead>
                     <tbody id="pricing_table">
@@ -8462,12 +8455,22 @@
                         @endif
                       @else
                         @php
+                          $familyPricingPets = $appointment->family_pets;
+                          if ($familyPricingPets->isEmpty() && $appointment->pet) {
+                            $familyPricingPets = collect([$appointment->pet]);
+                          }
+                          $isBoardingForPricing = isBoardingService($appointment->service);
+                          $petCountForPricing = max(1, $familyPricingPets->count());
+
                           $servicePrice = getServicePrice($appointment->service, $appointment->pet->size, $appointment->metadata);
-                          if (isBoardingService($appointment->service)) {
+                          if ($isBoardingForPricing) {
                             $boardingPrice = getBoardingServicePrice($appointment->service, $appointment);
                             if ($boardingPrice !== null) {
                               $servicePrice = $boardingPrice;
                             }
+                          }
+                          if ($isBoardingForPricing && $petCountForPricing > 1) {
+                            $servicePrice = $servicePrice * $petCountForPricing;
                           }
                         @endphp
                         @php
@@ -8477,10 +8480,15 @@
                           }
                           $mainPricePerMile = floatval($appointment->service->price_per_mile ?? 0);
                         @endphp
+                      @endif
+                      @if(!($invoice && $invoice->items && $invoice->items->count() > 0))
                         <tr class="service-row">
                           <td>{{ $row++ }}</td>
                           <td width="56%">
                             <div>{{ $appointment->service->name }}</div>
+                            @if($isBoardingForPricing && $petCountForPricing > 1 && !$isChauffeurMain)
+                              <div class="text-[10px] text-base-content/60">{{ $petCountForPricing }} pets</div>
+                            @endif
                             @if($isChauffeurMain && $chauffeurDistanceMiles !== null)
                               <div class="text-[10px] text-base-content/60">
                                 {{ number_format($chauffeurDistanceMiles, 2) }} mi x ${{ number_format($mainPricePerMile, 2) }}/mi
@@ -8490,48 +8498,132 @@
                           <td>${{ number_format($servicePrice, 2) }}</td>
                           <td></td>
                         </tr>
-                        @if($appointment->additional_service_ids)
-                          @php
-                            $additionalIds = explode(',', $appointment->additional_service_ids);
-                            $additionalServices = \App\Models\Service::whereIn('id', $additionalIds)->get();
-                          @endphp
-                          @foreach($additionalServices as $additionalService)
-                            @php
-                              $isChauffeurAdditional = array_key_exists($additionalService->id, $chauffeurServicePrices);
-                              $additionalPrice = $isChauffeurAdditional
-                                ? floatval($chauffeurServicePrices[$additionalService->id])
-                                : getServicePrice($additionalService, $appointment->pet->size);
-                              $additionalPricePerMile = floatval($additionalService->price_per_mile ?? 0);
-                            @endphp
-                            <tr class="service-row">
-                              <td>{{ $row++ }}</td>
-                              <td width="56%">
-                                <div>{{ $additionalService->name }}</div>
-                                @if($isChauffeurAdditional && $chauffeurDistanceMiles !== null)
-                                  <div class="text-[10px] text-base-content/60">
-                                    {{ number_format($chauffeurDistanceMiles, 2) }} mi x ${{ number_format($additionalPricePerMile, 2) }}/mi
-                                  </div>
-                                @endif
-                              </td>
-                              <td>${{ number_format($additionalPrice, 2) }}</td>
-                              <td></td>
-                            </tr>
-                          @endforeach
+                        @php
+                          $additionalServicesByPet = $appointment->additional_services_by_pet ?? [];
+                          $flatAdditionalIds = collect($additionalServicesByPet)
+                            ->flatten()
+                            ->map(fn($id) => (int) $id)
+                            ->filter(fn($id) => $id > 0)
+                            ->unique()
+                            ->values();
+                          $additionalServiceMap = $flatAdditionalIds->isNotEmpty()
+                            ? \App\Models\Service::whereIn('id', $flatAdditionalIds->all())->get()->keyBy('id')
+                            : collect();
+                        @endphp
+
+                        @if($flatAdditionalIds->isNotEmpty())
+                          @if($isBoardingForPricing)
+                            @foreach($familyPricingPets as $pricingPet)
+                              @php
+                                $petServiceIds = collect($additionalServicesByPet[$pricingPet->id] ?? [])
+                                  ->map(fn($id) => (int) $id)
+                                  ->filter(fn($id) => $id > 0)
+                                  ->unique()
+                                  ->values();
+                              @endphp
+                              @foreach($petServiceIds as $petServiceId)
+                                @php
+                                  $additionalService = $additionalServiceMap->get($petServiceId);
+                                  if (!$additionalService) {
+                                    continue;
+                                  }
+
+                                  $isChauffeurAdditional = array_key_exists($additionalService->id, $chauffeurServicePrices);
+                                  $additionalPrice = $isChauffeurAdditional
+                                    ? floatval($chauffeurServicePrices[$additionalService->id])
+                                    : getServicePrice($additionalService, $pricingPet->size ?? ($appointment->pet->size ?? 'medium'));
+                                  $additionalPricePerMile = floatval($additionalService->price_per_mile ?? 0);
+                                @endphp
+                                <tr class="service-row">
+                                  <td>{{ $row++ }}</td>
+                                  <td width="56%">
+                                    <div>{{ $additionalService->name }} - {{ $pricingPet->name ?? 'Pet' }}</div>
+                                    @if($isChauffeurAdditional && $chauffeurDistanceMiles !== null)
+                                      <div class="text-[10px] text-base-content/60">
+                                        {{ number_format($chauffeurDistanceMiles, 2) }} mi x ${{ number_format($additionalPricePerMile, 2) }}/mi
+                                      </div>
+                                    @endif
+                                  </td>
+                                  <td>${{ number_format($additionalPrice, 2) }}</td>
+                                  <td></td>
+                                </tr>
+                              @endforeach
+                            @endforeach
+                          @else
+                            @foreach($flatAdditionalIds as $petServiceId)
+                              @php
+                                $additionalService = $additionalServiceMap->get($petServiceId);
+                                if (!$additionalService) {
+                                  continue;
+                                }
+
+                                $isChauffeurAdditional = array_key_exists($additionalService->id, $chauffeurServicePrices);
+                                $additionalPrice = $isChauffeurAdditional
+                                  ? floatval($chauffeurServicePrices[$additionalService->id])
+                                  : getServicePrice($additionalService, $appointment->pet->size);
+                                $additionalPricePerMile = floatval($additionalService->price_per_mile ?? 0);
+                              @endphp
+                              <tr class="service-row">
+                                <td>{{ $row++ }}</td>
+                                <td width="56%">
+                                  <div>{{ $additionalService->name }}</div>
+                                  @if($isChauffeurAdditional && $chauffeurDistanceMiles !== null)
+                                    <div class="text-[10px] text-base-content/60">
+                                      {{ number_format($chauffeurDistanceMiles, 2) }} mi x ${{ number_format($additionalPricePerMile, 2) }}/mi
+                                    </div>
+                                  @endif
+                                </td>
+                                <td>${{ number_format($additionalPrice, 2) }}</td>
+                                <td></td>
+                              </tr>
+                            @endforeach
+                          @endif
                         @endif
                       @endif
                       @if($invoice && $invoice->items)
-                        @foreach($invoice->items as $invoiceItem)
-                          @if($invoiceItem->item_type === 'inventory')
-                          <tr class="inventory-row" data-item-id="{{ $invoiceItem->id }}">
+                        @php
+                          $displayInvoiceItems = collect(dedupeBoardingAutoFeeInvoiceItems($invoice->items))->values();
+                          if (!shouldApplyLateFee(\App\Models\FacilityAddress::query()->orderBy('id')->first(), $appointment)) {
+                            $displayInvoiceItems = $displayInvoiceItems->reject(function ($item) {
+                              return in_array(strtolower(trim((string) ($item->item_name ?? ''))), ['late fee', 'late checkout daycare fee', 'late checkout fee'], true);
+                            })->values();
+                          }
+                        @endphp
+                        @foreach($displayInvoiceItems as $invoiceItem)
+                          @php
+                            $invoiceItemType = strtolower(trim((string) ($invoiceItem->item_type ?? 'service')));
+                          @endphp
+                          @if($invoiceItemType === 'inventory')
+                          <tr class="inventory-row" data-item-id="{{ $invoiceItem->id }}" data-item-type="inventory">
                             <td>{{ $row++ }}</td>
                             <td width="56%">{{ $invoiceItem->item_name }}</td>
                             <td>${{ number_format($invoiceItem->price, 2) }}</td>
                             <td>
-                              @if(!$invoice || $invoice->status === 'draft')
-                              <button type="button" class="btn btn-sm btn-ghost btn-circle" style="height: 16px" onclick="removeExistingInvoiceItem({{ $invoiceItem->id }})">
-                                <span class="iconify lucide--trash-2 size-3 text-error"></span>
+                              <button type="button" class="btn btn-sm btn-ghost btn-circle" style="height: 16px" onclick="removeExistingInvoiceItem({{ $invoiceItem->id }})" {{ $isInvoiceEditingLocked || !canEditInvoice() ? 'disabled' : '' }} title="{{ !canEditInvoice() ? 'Only the facility owner can delete items.' : ($isInvoiceEditingLocked ? 'Invoice is locked.' : '') }}">
+                                <span class="iconify lucide--trash-2 size-3 {{ $isInvoiceEditingLocked || !canEditInvoice() ? 'text-gray-400' : 'text-error' }}"></span>
                               </button>
-                              @endif
+                            </td>
+                          </tr>
+                          @elseif($invoiceItemType === 'custom')
+                          <tr class="service-row custom-line-row" data-item-id="{{ $invoiceItem->id }}" data-item-type="custom">
+                            <td>{{ $row++ }}</td>
+                            <td width="56%">{{ $invoiceItem->item_name }}</td>
+                            <td>${{ number_format($invoiceItem->price, 2) }}</td>
+                            <td>
+                              <button type="button" class="btn btn-sm btn-ghost btn-circle" style="height: 16px" onclick="removeExistingInvoiceItem({{ $invoiceItem->id }})" {{ $isInvoiceEditingLocked || !canEditInvoice() ? 'disabled' : '' }} title="{{ !canEditInvoice() ? 'Only the facility owner can delete items.' : ($isInvoiceEditingLocked ? 'Invoice is locked.' : '') }}">
+                                <span class="iconify lucide--trash-2 size-3 {{ $isInvoiceEditingLocked || !canEditInvoice() ? 'text-gray-400' : 'text-error' }}"></span>
+                              </button>
+                            </td>
+                          </tr>
+                          @else
+                          <tr class="service-row" data-item-id="{{ $invoiceItem->id }}" data-item-type="{{ $invoiceItemType ?: 'service' }}">
+                            <td>{{ $row++ }}</td>
+                            <td width="56%">{{ $invoiceItem->item_name }}</td>
+                            <td>${{ number_format($invoiceItem->price, 2) }}</td>
+                            <td>
+                              <button type="button" class="btn btn-sm btn-ghost btn-circle" style="height: 16px" onclick="removeExistingInvoiceItem({{ $invoiceItem->id }})" {{ $isInvoiceEditingLocked || !canEditInvoice() ? 'disabled' : '' }} title="{{ !canEditInvoice() ? 'Only the facility owner can delete items.' : ($isInvoiceEditingLocked ? 'Invoice is locked.' : '') }}">
+                                <span class="iconify lucide--trash-2 size-3 {{ $isInvoiceEditingLocked || !canEditInvoice() ? 'text-gray-400' : 'text-error' }}"></span>
+                              </button>
                             </td>
                           </tr>
                           @endif
@@ -8545,6 +8637,56 @@
                         <td></td>
                       </tr>
                       @endif
+                      @php
+                        $checkedInFlowsForPricing = [];
+                        if ($checkedIn && !empty($checkedIn->flows)) {
+                          if (is_array($checkedIn->flows)) {
+                            $checkedInFlowsForPricing = $checkedIn->flows;
+                          } else {
+                            $decodedCheckedInFlowsForPricing = json_decode($checkedIn->flows, true);
+                            $checkedInFlowsForPricing = is_array($decodedCheckedInFlowsForPricing) ? $decodedCheckedInFlowsForPricing : [];
+                          }
+                        }
+
+                        $boardingFleaTickBreakdown = isBoardingService($appointment->service)
+                          ? getBoardingFleaTickBreakdown($appointment, $checkedInFlowsForPricing)
+                          : ['checked_pet_count' => 0, 'amount' => 0];
+
+                        $persistedLateCheckoutInvoiceFee = 0;
+                        if ($invoice && $invoice->items) {
+                          foreach ($invoice->items as $invoiceItem) {
+                            if (($invoiceItem->item_type ?? '') === 'service' && in_array(strtolower(trim((string) ($invoiceItem->item_name ?? ''))), ['late fee', 'late checkout daycare fee', 'late checkout fee'], true)) {
+                              $persistedLateCheckoutInvoiceFee = max($persistedLateCheckoutInvoiceFee, floatval($invoiceItem->price ?? 0));
+                            }
+                          }
+                        }
+                        if (!shouldApplyLateFee(\App\Models\FacilityAddress::query()->orderBy('id')->first(), $appointment)) {
+                          $persistedLateCheckoutInvoiceFee = 0;
+                        }
+
+                        $invoiceLateCheckoutBreakdown = isBoardingService($appointment->service)
+                          ? getBoardingLateCheckoutDaycareBreakdown($appointment, $checkout, 1)
+                          : ['fee' => 0];
+                        $invoiceLateCheckoutDaycareFee = max(
+                          floatval($invoiceLateCheckoutBreakdown['fee'] ?? 0),
+                          floatval($persistedLateCheckoutInvoiceFee ?? 0),
+                          floatval($lateCheckoutDaycareFeeDisplay ?? 0),
+                          floatval($headerLateCheckoutFormulaFee ?? 0),
+                          floatval($headerLateCheckoutDaycareFee ?? 0)
+                        );
+                      @endphp
+                      <tr id="flea_tick_fee_row" class="service-row flea-tick-row" data-initial-fee="{{ number_format(($boardingFleaTickBreakdown['amount'] ?? 0), 2, '.', '') }}" style="{{ $invoice || ($boardingFleaTickBreakdown['amount'] ?? 0) <= 0 ? 'display:none;' : '' }}">
+                        <td>{{ $row++ }}</td>
+                        <td width="56%">Flea/Tick Detection Fee</td>
+                        <td>${{ number_format($boardingFleaTickBreakdown['amount'] ?? 0, 2) }}</td>
+                        <td></td>
+                      </tr>
+                      <tr id="late_checkout_daycare_fee_row" class="service-row late-checkout-daycare-row" data-initial-fee="{{ number_format($persistedLateCheckoutInvoiceFee > 0 ? 0 : $invoiceLateCheckoutDaycareFee, 2, '.', '') }}" style="{{ $invoice || $persistedLateCheckoutInvoiceFee > 0 || $invoiceLateCheckoutDaycareFee <= 0 ? 'display:none;' : '' }}">
+                        <td>{{ $row++ }}</td>
+                        <td width="56%">Late Fee</td>
+                        <td>${{ number_format($persistedLateCheckoutInvoiceFee > 0 ? $persistedLateCheckoutInvoiceFee : $invoiceLateCheckoutDaycareFee, 2) }}</td>
+                        <td></td>
+                      </tr>
                     </tbody>
                   </table>
                   <hr class="mt-2" style="color: lightgray"/>
@@ -8557,7 +8699,7 @@
                       </tr>
                       <tr>
                         <td colspan="2" class="font-medium text-end" width="66%">Estimated Price of Services:</td>
-                        <td>${{ number_format($appointment->estimated_price, 2) }}</td>
+                        <td id="estimated_price_of_services">${{ number_format($appointment->estimated_price, 2) }}</td>
                         <td></td>
                       </tr>
                       @if ($invoice && $invoice->discount_amount)
@@ -8567,7 +8709,7 @@
                         $discountTooltipText = 'The discount "' . $discountTooltipTitle . '" is applied for ' . $discountCustomerName . '.';
                       @endphp
                       <tr id="invoice_discount_row">
-                          <td colspan="2" class="font-medium text-end" width="66%">Discount:</td>
+                          <td id="invoice_discount_label" colspan="2" class="font-medium text-end" width="66%">{{ $invoice->discount_title ?: 'Discount' }}:</td>
                           <td id="invoice_discount_amount" width="10%">-${{ number_format($invoice->discount_amount, 2) }}</td>
                           <td style="padding-left: 0">
                               <span class="flex tooltip tooltip-info tooltip-left cursor-pointer js-click-tooltip js-invoice-discount-tooltip"
@@ -8578,7 +8720,7 @@
                       </tr>
                       @elseif(!empty($invoiceDiscountRules))
                         <tr id="invoice_discount_row" style="display: none;">
-                          <td colspan="2" class="font-medium text-end" width="66%">Discount:</td>
+                          <td id="invoice_discount_label" colspan="2" class="font-medium text-end" width="66%">Discount:</td>
                           <td id="invoice_discount_amount" width="10%"></td>
                           <td style="padding-left: 0">
                               <span class="flex tooltip tooltip-info tooltip-left cursor-pointer js-click-tooltip js-invoice-discount-tooltip"
@@ -8594,19 +8736,91 @@
                         <td></td>
                       </tr>
                       <tr>
+                        <td colspan="2" class="font-medium text-end" width="66%">Subtotal:</td>
+                        <td id="invoice_subtotal_amount">$0.00</td>
+                        <td></td>
+                      </tr>
+                      <tr id="invoice_state_tax_row" style="display: none;">
+                        <td colspan="2" class="font-medium text-end" width="66%">State Tax (<span id="invoice_state_tax_rate_label">0</span>%):</td>
+                        <td id="invoice_state_tax_amount">$0.00</td>
+                        <td></td>
+                      </tr>
+                      <tr style="border-bottom: 3px solid lightgray;">
                         <td colspan="2" class="font-medium text-end" width="66%">Total Amount:</td>
-                        <td id="grand_total_amount"></td>
+                        <td id="grand_total_amount">$0.00</td>
+                        <td></td>
+                      </tr>
+                      @php
+                        $invoicePaymentSummary = $paymentSummary ?? [
+                          'online_payment' => 0,
+                          'in_person_payment' => 0,
+                          'payments_received' => 0,
+                          'balance_due' => 0,
+                          'status' => strtolower((string) ($invoice->status ?? 'draft')),
+                        ];
+                        $invoiceStatusValue = strtolower((string) ($invoicePaymentSummary['status'] ?? 'draft'));
+                        $onlinePaymentAmount = floatval($invoicePaymentSummary['online_payment'] ?? 0);
+                        $inPersonPaymentAmount = floatval($invoicePaymentSummary['in_person_payment'] ?? 0);
+                        $shouldShowInvoicePaymentSummary = $invoice
+                          && ($invoiceStatusValue !== 'draft' || floatval($invoicePaymentSummary['payments_received'] ?? 0) > 0);
+                        $invoiceStatusLabel = match ($invoiceStatusValue) {
+                          'paid' => 'Paid',
+                          'partially_paid' => 'Partially Paid',
+                          'sent' => 'Sent',
+                          'void' => 'Void',
+                          'finalized' => 'Finalized',
+                          default => 'Draft',
+                        };
+                        $invoiceStatusBadgeClass = match ($invoiceStatusValue) {
+                          'paid' => 'badge-success',
+                          'partially_paid' => 'badge-warning',
+                          'sent' => 'badge-info',
+                          'void' => 'badge-error',
+                          'finalized' => 'badge-secondary',
+                          default => 'badge-ghost',
+                        };
+                      @endphp
+                      <tr id="invoice_payment_summary_row_online" class="border-t {{ $shouldShowInvoicePaymentSummary && $onlinePaymentAmount > 0 ? '' : 'hidden' }}">
+                        <td colspan="2" class="font-medium text-end" width="66%">Online Payment:</td>
+                        <td id="online_payment_amount">${{ number_format((float) ($invoicePaymentSummary['online_payment'] ?? 0), 2) }}</td>
+                        <td></td>
+                      </tr>
+                      <tr id="invoice_payment_summary_row_in_person" class="{{ $shouldShowInvoicePaymentSummary && $inPersonPaymentAmount > 0 ? '' : 'hidden' }}">
+                        <td colspan="2" class="font-medium text-end" width="66%">In-Person Payment:</td>
+                        <td id="in_person_payment_amount">${{ number_format((float) ($invoicePaymentSummary['in_person_payment'] ?? 0), 2) }}</td>
+                        <td></td>
+                      </tr>
+                      <tr id="invoice_payment_summary_row_balance" class="{{ $shouldShowInvoicePaymentSummary ? '' : 'hidden' }}">
+                        <td colspan="2" class="font-medium text-end" width="66%">Balance Due:</td>
+                        <td id="balance_due_amount">${{ number_format((float) ($invoicePaymentSummary['balance_due'] ?? 0), 2) }}</td>
+                        <td></td>
+                      </tr>
+                      <tr id="invoice_payment_summary_row_status" class="{{ $shouldShowInvoicePaymentSummary ? '' : 'hidden' }}">
+                        <td colspan="2" class="font-medium text-end" width="66%">Invoice Status:</td>
+                        <td id="invoice_status_cell">
+                          <span id="invoice_status_badge" class="badge badge-soft badge-sm {{ $invoiceStatusBadgeClass }}">{{ $invoiceStatusLabel }}</span>
+                        </td>
                         <td></td>
                       </tr>
                     </tfoot>
                   </table>
                 </div>
                 <div class="mt-3">
-                  @if(hasPermission(14, 'can_create') && (!$invoice || $invoice->status !== 'paid'))
-                  <button type="button" id="save_invoice_btn" class="btn btn-primary btn-soft btn-sm" onclick="saveInvoice({{ $appointment->id }})">
-                    <span class="loading loading-spinner loading-sm" style="display: none;"></span>
-                    Save Invoice
-                  </button>
+                  @if(!$isInvoiceEditingLocked)
+                  <div class="flex flex-wrap gap-2">
+                    <button type="button" id="save_invoice_btn" class="btn btn-primary btn-soft btn-sm" onclick="saveInvoice({{ $appointment->id }})">
+                      <span class="loading loading-spinner loading-sm" style="display: none;"></span>
+                      Save Invoice
+                    </button>
+                    <button type="button" id="send_invoice_btn" class="btn btn-primary btn-outline btn-sm" onclick="sendInvoice({{ $appointment->id }})">
+                      <span class="loading loading-spinner loading-sm" style="display: none;"></span>
+                      Send Invoice
+                    </button>
+                    <button type="button" id="pay_invoice_btn" class="btn btn-secondary btn-soft btn-sm" onclick="payInPerson({{ $appointment->id }})">
+                      <span class="loading loading-spinner loading-sm" style="display: none;"></span>
+                      Pay In Person
+                    </button>
+                  </div>
                   @endif
                 </div>
               </div>
@@ -9872,8 +10086,15 @@
           <option value="">Select payment type</option>
           <option value="cash">Cash</option>
           <option value="check">Check</option>
-          <option value="cc">Credit Card</option>
+          <option value="terminal_card">Credit Card (Terminal)</option>
         </select>
+        <div id="payment_method_static" class="input input-bordered w-full input-sm hidden">
+          Cash
+        </div>
+      </fieldset>
+      <fieldset id="authorization_code_field" class="fieldset hidden">
+        <legend class="fieldset-legend">Authorization Code*</legend>
+        <input type="text" id="authorization_code" class="input input-bordered w-full input-sm" maxlength="255" placeholder="482913" />
       </fieldset>
       <fieldset class="fieldset">
         <legend class="fieldset-legend">Notes</legend>
@@ -10241,9 +10462,6 @@
 
     // Calculate totals on page load for existing invoice items
     updateTotals();
-    $('#status, #issued_at, #paid_at').on('change', function() {
-      updateTotals();
-    });
 
     // Initialize Select2 for inventory items
     $('#inventory_item').select2({
@@ -11319,16 +11537,328 @@
 
   let itemIdx = 0;
   const invoiceDiscountRules = @json($invoiceDiscountRules ?? []);
-  const invoiceDefaultStatus = @json($invoice?->status ?? 'draft');
+  let invoiceRuntimeStatus = @json($paymentSummary['status'] ?? $invoice?->status ?? 'draft');
   const invoiceIssuedAt = @json(optional($invoice?->issued_at)->format('Y-m-d H:i:s'));
   const invoicePaidAt = @json(optional($invoice?->paid_at)->format('Y-m-d H:i:s'));
   const invoiceExists = {{ $invoice ? 'true' : 'false' }};
   const hasPersistedInvoiceDiscount = {{ ($invoice && (float) $invoice->discount_amount > 0) ? 'true' : 'false' }};
   const persistedInvoiceDiscountAmount = parseFloat(@json($invoice->discount_amount ?? 0));
   const persistedInvoiceDiscountTitle = @json($invoice->discount_title ?? null);
+  const invoiceStateTaxRate = parseFloat(@json((float) config('billing.state_tax_rate', 7)));
+  const isBoardingInvoice = {{ isBoardingService($appointment->service) ? 'true' : 'false' }};
+  const lateCheckoutThresholdHours = parseFloat(@json($headerLateCheckoutThresholdHours ?? 1));
+  const daycareHourlyRate = parseFloat(@json($headerLateCheckoutHourlyRate ?? 0));
+  const lateFeeEligible = {{ ($headerLateFeeEligible ?? false) ? 'true' : 'false' }};
+  const lateCheckoutInitialFee = parseFloat(@json($invoiceLateCheckoutDaycareFee ?? 0));
+  const hasPersistedLateCheckoutInvoiceFee = {{ ($persistedLateCheckoutInvoiceFee ?? 0) > 0 ? 'true' : 'false' }};
+  const lateCheckoutFormulaFee = parseFloat(@json($headerLateCheckoutFormulaFee ?? 0));
+  const scheduledPickupDateTime = @json((!empty($appointment->end_date) && !empty($appointment->end_time)) ? ($appointment->end_date . ' ' . $appointment->end_time) : null);
+  const canOverrideInvoiceLock = {{ ($canOverrideInvoiceLock ?? false) ? 'true' : 'false' }};
+  const invoiceEditingLocked = {{ ($isInvoiceEditingLocked ?? false) ? 'true' : 'false' }};
+  const canEditInvoice = {{ (canEditInvoice() ? 'true' : 'false') }};
   let currentDiscountTitle = null;
   const invoiceCustomerFullName = @json(trim((($appointment->customer->profile->first_name ?? '') . ' ' . ($appointment->customer->profile->last_name ?? ''))) ?: ($appointment->customer->name ?? 'customer'));
+
+  function escapeHtml(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  function parseMoney(value) {
+    const numeric = parseFloat(String(value || '').replace(/[^0-9.-]/g, ''));
+    return Number.isFinite(numeric) ? numeric : 0;
+  }
+
+  function getInvoiceRowDescription($row) {
+    const input = $row.find('.invoice-item-description');
+    if (input.length) {
+      return (input.val() || '').trim();
+    }
+
+    return ($row.find('td:nth-child(2)').text() || '').trim();
+  }
+
+  function getInvoiceRowPrice($row) {
+    const input = $row.find('.invoice-item-price');
+    if (input.length) {
+      return parseMoney(input.val());
+    }
+
+    return parseMoney($row.find('td:nth-child(3)').text());
+  }
+
+  function resolveInvoiceRowType($row) {
+    if ($row.hasClass('custom-line-row')) {
+      return 'custom';
+    }
+
+    if ($row.hasClass('inventory-row')) {
+      return 'inventory';
+    }
+
+    return String($row.attr('data-item-type') || 'service').trim() || 'service';
+  }
+
+  function refreshPricingRowIndexes() {
+    $('#pricing_table tr:visible').each(function(index) {
+      $(this).find('td:first').text(index + 1);
+    });
+  }
+
+  function shouldSkipDuplicateAutoFee(description, seenAutoFees) {
+    const normalizedDescription = String(description || '').trim().toLowerCase();
+    const lateFeeDescriptions = ['late fee', 'late checkout daycare fee', 'late checkout fee'];
+    const autoFeeDescriptions = [...lateFeeDescriptions, 'flea/tick detection fee'];
+
+    if (!autoFeeDescriptions.includes(normalizedDescription)) {
+      return false;
+    }
+
+    const dedupeKey = lateFeeDescriptions.includes(normalizedDescription) ? 'late fee' : normalizedDescription;
+
+    if (seenAutoFees.has(dedupeKey)) {
+      return true;
+    }
+
+    seenAutoFees.add(dedupeKey);
+    return false;
+  }
+
+  function collectInvoiceItems() {
+    const items = [];
+    const seenAutoFees = new Set();
+
+    $('#pricing_table tr.service-row, #pricing_table tr.inventory-row, #pricing_table tr.coat-fee-row').each(function() {
+      const $row = $(this);
+      if (!$row.is(':visible')) {
+        return;
+      }
+
+      const description = getInvoiceRowDescription($row);
+      if (shouldSkipDuplicateAutoFee(description, seenAutoFees)) {
+        return;
+      }
+      const price = getInvoiceRowPrice($row);
+      if (!description) {
+        return;
+      }
+
+      items.push({
+        description: description,
+        price: price,
+        type: resolveInvoiceRowType($row)
+      });
+    });
+
+    return items;
+  }
+
+  function applyInvoiceLockState() {
+    if (!invoiceEditingLocked) {
+      return;
+    }
+
+    $('#invoice_number, #first_name, #last_name, #email, #invoice_notes').prop('disabled', true);
+    $('#inventory_item, #add_line_item_btn').prop('disabled', true);
+    $('#save_invoice_btn').prop('disabled', true);
+    $('#send_invoice_btn').prop('disabled', true);
+    $('#pay_invoice_btn').prop('disabled', true);
+    $('#pricing_table .btn').prop('disabled', true);
+    $('#pricing_table input').prop('disabled', true);
+  }
+
+  function enhanceInvoiceLineItemsForEditing() {
+    if (invoiceEditingLocked) {
+      applyInvoiceLockState();
+      return;
+    }
+
+    $('#pricing_table tr.service-row, #pricing_table tr.inventory-row, #pricing_table tr.coat-fee-row').each(function() {
+      const $row = $(this);
+      if ($row.hasClass('line-item-edit-ready')) {
+        return;
+      }
+
+      const description = escapeHtml(getInvoiceRowDescription($row));
+      const price = getInvoiceRowPrice($row);
+      const disabledAttr = !canEditInvoice ? 'disabled' : '';
+
+      $row.find('td:nth-child(2)').html('<input type="text" class="input input-bordered input-xs w-full invoice-item-description" value="' + description + '" ' + disabledAttr + ' />');
+      $row.find('td:nth-child(3)').html('<input type="number" step="0.01" class="input input-bordered input-xs w-full invoice-item-price" value="' + price.toFixed(2) + '" ' + disabledAttr + ' />');
+
+      if ($row.find('td:nth-child(4)').length === 0) {
+        $row.append('<td></td>');
+      }
+
+      if ($row.find('.remove-line-item-btn').length === 0) {
+        const trashColorClass = canEditInvoice ? 'text-error' : 'text-gray-400';
+        const disabledAttr = canEditInvoice ? '' : 'disabled';
+        $row.find('td:nth-child(4)').html(
+          '<button type="button" class="btn btn-sm btn-ghost btn-circle remove-line-item-btn" style="height: 16px" ' + disabledAttr + '>'
+          + '<span class="iconify lucide--trash-2 size-3 ' + trashColorClass + '"></span>'
+          + '</button>'
+        );
+      }
+
+      $row.addClass('line-item-edit-ready');
+    });
+
+    refreshPricingRowIndexes();
+  }
+
+  function syncLateCheckoutDaycareFeeRow() {
+    const row = $('#late_checkout_daycare_fee_row');
+    if (!row.length) {
+      return { fee: 0, lateHours: 0, isLate: false };
+    }
+
+    if (!lateFeeEligible) {
+      row.hide();
+      row.attr('data-initial-fee', '0.00');
+      row.find('td:nth-child(3)').text('$0.00');
+      return { fee: 0, lateHours: 0, isLate: false };
+    }
+
+    if (invoiceExists) {
+      row.hide();
+      row.attr('data-initial-fee', '0.00');
+      row.find('td:nth-child(3)').text('$0.00');
+      return { fee: 0, lateHours: 0, isLate: false };
+    }
+
+    if (hasPersistedLateCheckoutInvoiceFee) {
+      row.hide();
+      row.attr('data-initial-fee', '0.00');
+      row.find('td:nth-child(3)').text('$0.00');
+      return { fee: 0, lateHours: 0, isLate: false };
+    }
+
+    const initialFee = Number.isFinite(lateCheckoutInitialFee)
+      ? lateCheckoutInitialFee
+      : 0;
+    const formulaFee = Number.isFinite(lateCheckoutFormulaFee)
+      ? lateCheckoutFormulaFee
+      : 0;
+    const rowFee = parseFloat(row.attr('data-initial-fee')) || 0;
+    const fallbackFee = Math.max(initialFee, formulaFee, rowFee);
+
+    const checkoutDate = ($('#checkout_date').val() || '').trim();
+    const checkoutTime = ($('#checkout_pickup_time').val() || '').trim();
+
+    if (!scheduledPickupDateTime || !checkoutDate || !checkoutTime || !(daycareHourlyRate > 0)) {
+      if (fallbackFee > 0) {
+        row.show();
+        row.find('td:nth-child(3)').text('$' + fallbackFee.toFixed(2));
+        row.attr('data-initial-fee', fallbackFee.toFixed(2));
+        return { fee: fallbackFee, lateHours: 0, isLate: true };
+      }
+
+      row.hide();
+      row.find('td:nth-child(3)').text('$0.00');
+      row.attr('data-initial-fee', '0.00');
+      return { fee: 0, lateHours: 0, isLate: false };
+    }
+
+    const scheduledAt = moment(scheduledPickupDateTime);
+    const actualAt = moment(checkoutDate + ' ' + checkoutTime);
+
+    if (!scheduledAt.isValid() || !actualAt.isValid()) {
+      if (fallbackFee > 0) {
+        row.show();
+        row.find('td:nth-child(3)').text('$' + fallbackFee.toFixed(2));
+        row.attr('data-initial-fee', fallbackFee.toFixed(2));
+        return { fee: fallbackFee, lateHours: 0, isLate: true };
+      }
+
+      row.hide();
+      row.find('td:nth-child(3)').text('$0.00');
+      row.attr('data-initial-fee', '0.00');
+      return { fee: 0, lateHours: 0, isLate: false };
+    }
+
+    const lateSeconds = actualAt.diff(scheduledAt, 'seconds');
+    if (lateSeconds <= 0) {
+      if (fallbackFee > 0) {
+        row.show();
+        row.find('td:nth-child(3)').text('$' + fallbackFee.toFixed(2));
+        row.attr('data-initial-fee', fallbackFee.toFixed(2));
+        return { fee: fallbackFee, lateHours: 0, isLate: false };
+      }
+
+      row.hide();
+      row.find('td:nth-child(3)').text('$0.00');
+      row.attr('data-initial-fee', '0.00');
+      return { fee: 0, lateHours: 0, isLate: false };
+    }
+
+    const lateHours = lateSeconds / 3600;
+    if (lateHours < lateCheckoutThresholdHours) {
+      if (fallbackFee > 0) {
+        row.show();
+        row.find('td:nth-child(3)').text('$' + fallbackFee.toFixed(2));
+        row.attr('data-initial-fee', fallbackFee.toFixed(2));
+        return { fee: fallbackFee, lateHours, isLate: true };
+      }
+
+      row.hide();
+      row.find('td:nth-child(3)').text('$0.00');
+      row.attr('data-initial-fee', '0.00');
+      return { fee: 0, lateHours, isLate: true };
+    }
+
+    const billableHours = Math.floor(lateHours);
+    const fee = Math.round((billableHours * daycareHourlyRate + Number.EPSILON) * 100) / 100;
+    row.show();
+    row.find('td:nth-child(3)').text('$' + fee.toFixed(2));
+    row.attr('data-initial-fee', fee.toFixed(2));
+
+    return { fee, lateHours, isLate: true };
+  }
+
+  window.__invoiceTotalsReady = true;
+  enhanceInvoiceLineItemsForEditing();
+  applyInvoiceLockState();
+
+  $(document).on('input', '.invoice-item-price, .invoice-item-description', function() {
+    if (!canEditInvoice) {
+      return false;
+    }
+    updateTotals();
+  });
+
+  $(document).on('click', '.remove-line-item-btn', function() {
+    if (invoiceEditingLocked) {
+      return false;
+    }
+
+    if (!canEditInvoice) {
+      return false;
+    }
+
+    $(this).closest('tr').remove();
+    refreshPricingRowIndexes();
+    const deleteTotals = updateTotals();
+    updateDetailSectionSummaryFromInvoice(collectInvoiceItems(), deleteTotals);
+  });
+
+  if (typeof updateTotals === 'function') {
+    syncLateCheckoutDaycareFeeRow();
+    updateTotals();
+  }
+
   function addInventoryItem() {
+    if (invoiceEditingLocked) {
+      return false;
+    }
+
+    if (!canEditInvoice) {
+      return false;
+    }
+
     const selectedItem = $('#inventory_item').select2('data')[0];
     if (!selectedItem) {
       $('#alert_message').text('Please select an inventory item.');
@@ -11337,32 +11867,72 @@
     }
 
     const newRow = `
-      <tr id="item_row_${itemIdx}" class="inventory-row">
+      <tr id="item_row_${itemIdx}" class="inventory-row" data-item-type="inventory">
         <td>${$('#pricing_table tr').length}</td>
-        <td width="56%">${selectedItem.brand}</td>
-        <td>$${parseFloat(selectedItem.price).toFixed(2)}</td>
+        <td width="56%"><input type="text" class="input input-bordered input-xs w-full invoice-item-description" value="${escapeHtml(selectedItem.brand)}" ${canEditInvoice ? '' : 'disabled'} /></td>
+        <td><input type="number" step="0.01" class="input input-bordered input-xs w-full invoice-item-price" value="${parseFloat(selectedItem.price).toFixed(2)}" ${canEditInvoice ? '' : 'disabled'} /></td>
         <td>
-          <button type="button" class="btn btn-sm btn-ghost btn-circle" style="height: 16px" onclick="removeInventoryItem(${itemIdx})">
+          ${canEditInvoice ? `<button type="button" class="btn btn-sm btn-ghost btn-circle remove-line-item-btn" style="height: 16px">
             <span class="iconify lucide--trash-2 size-3 text-error"></span>
-          </button>
+          </button>` : ''}
         </td>
       </tr>
     `;
     $('#pricing_table').append(newRow);
+    refreshPricingRowIndexes();
     updateTotals();
     // Clear the selection
     $('#inventory_item').val(null).trigger('change');
     itemIdx++;
   }
 
+  function addCustomLineItem() {
+    if (invoiceEditingLocked) {
+      return false;
+    }
+
+    if (!canEditInvoice) {
+      return false;
+    }
+
+    const newRow = `
+      <tr id="custom_item_row_${itemIdx}" class="service-row custom-line-row" data-item-type="custom">
+        <td>${$('#pricing_table tr').length}</td>
+        <td width="56%"><input type="text" class="input input-bordered input-xs w-full invoice-item-description" placeholder="Line item description" value="" ${canEditInvoice ? '' : 'disabled'} /></td>
+        <td><input type="number" step="0.01" class="input input-bordered input-xs w-full invoice-item-price" value="0.00" ${canEditInvoice ? '' : 'disabled'} /></td>
+        <td>
+          ${canEditInvoice ? `<button type="button" class="btn btn-sm btn-ghost btn-circle remove-line-item-btn" style="height: 16px">
+            <span class="iconify lucide--trash-2 size-3 text-error"></span>
+          </button>` : ''}
+        </td>
+      </tr>
+    `;
+
+    $('#pricing_table').append(newRow);
+    refreshPricingRowIndexes();
+    updateTotals();
+    itemIdx++;
+  }
+
   function removeInventoryItem(idx) {
     $(`#item_row_${idx}`).remove();
+    refreshPricingRowIndexes();
     updateTotals();
   }
 
   function removeExistingInvoiceItem(itemId) {
+    if (invoiceEditingLocked) {
+      return false;
+    }
+
+    if (!canEditInvoice) {
+      return false;
+    }
+
     $(`tr[data-item-id="${itemId}"]`).remove();
-    updateTotals();
+    refreshPricingRowIndexes();
+    const deleteTotals = updateTotals();
+    updateDetailSectionSummaryFromInvoice(collectInvoiceItems(), deleteTotals);
   }
 
   function toMomentOrNow(value) {
@@ -11371,10 +11941,10 @@
 
   function resolveInvoiceDiscountReferenceDate(status, overrides = {}) {
     const normalizedStatus = (status || '').toLowerCase();
-    const effectiveIssuedAt = overrides.issuedAt || invoiceIssuedAt || $('#issued_at').val();
-    const effectivePaidAt = overrides.paidAt || invoicePaidAt || $('#paid_at').val();
+    const effectiveIssuedAt = overrides.issuedAt || invoiceIssuedAt;
+    const effectivePaidAt = overrides.paidAt || invoicePaidAt;
     const effectiveInvoiceExists = typeof overrides.invoiceExists === 'boolean' ? overrides.invoiceExists : invoiceExists;
-    const effectiveInvoiceStatus = (overrides.invoiceStatus || invoiceDefaultStatus || '').toLowerCase();
+    const effectiveInvoiceStatus = (overrides.invoiceStatus || invoiceRuntimeStatus || '').toLowerCase();
 
     if (normalizedStatus === 'paid') {
       return toMomentOrNow(effectivePaidAt);
@@ -11432,44 +12002,78 @@
   }
 
   function updateTotals(statusOverride = null, dateOverrides = {}) {
+    syncLateCheckoutDaycareFeeRow();
+
     // Calculate the Total Price of Services
     let serviceTotal = 0;
-    $('.service-row, .coat-fee-row').each(function() {
-      const priceText = $(this).find('td:nth-child(3)').text().replace('$', '').replace(/,/g, '');
-      const price = parseFloat(priceText);
+    const seenAutoFees = new Set();
+    $('.service-row:visible, .coat-fee-row:visible').each(function() {
+      const $row = $(this);
+      const description = getInvoiceRowDescription($row);
+      if (shouldSkipDuplicateAutoFee(description, seenAutoFees)) {
+        return;
+      }
+
+      const price = getInvoiceRowPrice($row);
       if (!isNaN(price)) {
         serviceTotal += price;
       }
     });
 
-    // Calculate service total (from Blade)
-    const estimatedPrice = parseFloat('{{ $appointment->estimated_price }}');
+    // Use rendered service rows as the source of truth for service totals.
+    const estimatedPrice = serviceTotal;
 
     // Set inventory total (excluding service and additional services)
     let inventoryRowsTotal = 0;
     $('.inventory-row').each(function() {
-      const priceText = $(this).find('td:nth-child(3)').text().replace('$', '').replace(/,/g, '');
-      const price = parseFloat(priceText);
+      const price = getInvoiceRowPrice($(this));
       if (!isNaN(price)) {
         inventoryRowsTotal += price;
       }
     });
 
-    const effectiveStatus = statusOverride || $('#status').val() || invoiceDefaultStatus;
-    const referenceDate = resolveInvoiceDiscountReferenceDate(effectiveStatus, dateOverrides);
-    const discountResult = calculateInvoiceDiscount(referenceDate, estimatedPrice);
+    const effectiveStatus = statusOverride || invoiceRuntimeStatus;
+    const discountRow = $('#invoice_discount_row');
+    const canRenderDiscount = discountRow.length > 0;
+
+    let discountResult = { amount: 0, rule: null };
+    if (canRenderDiscount) {
+      try {
+        const referenceDate = resolveInvoiceDiscountReferenceDate(effectiveStatus, dateOverrides);
+        discountResult = calculateInvoiceDiscount(referenceDate, estimatedPrice) || { amount: 0, rule: null };
+      } catch (error) {
+        console.error('Failed to calculate invoice discount:', error);
+        discountResult = { amount: 0, rule: null };
+      }
+    }
+
     const calculatedDiscountAmount = parseFloat(discountResult.amount || 0);
-    const discountAmount = hasPersistedInvoiceDiscount
+    const discountAmount = (hasPersistedInvoiceDiscount && canRenderDiscount)
       ? Math.max(0, Math.min(estimatedPrice, persistedInvoiceDiscountAmount || 0))
       : calculatedDiscountAmount;
-    const totalAmount = Math.max(0, estimatedPrice - discountAmount + inventoryRowsTotal);
+    const subtotalAmount = Math.max(0, estimatedPrice - discountAmount + inventoryRowsTotal);
+    const hasBoardingServiceRow = $('#pricing_table tr.service-row td:nth-child(2)').filter(function() {
+      return (($(this).text() || '').trim().toLowerCase().includes('boarding'));
+    }).length > 0;
+    const effectiveTaxRate = (isBoardingInvoice || hasBoardingServiceRow) ? Math.max(0, invoiceStateTaxRate || 0) : 0;
+    const stateTaxAmount = subtotalAmount * (effectiveTaxRate / 100);
+    const totalAmount = subtotalAmount + stateTaxAmount;
 
     $('#total_price_of_services').text('$' + serviceTotal.toFixed(2));
+    $('#estimated_price_of_services').text('$' + estimatedPrice.toFixed(2));
     $('#inventory_total_amount').text('$' + inventoryRowsTotal.toFixed(2));
+    $('#invoice_subtotal_amount').text('$' + subtotalAmount.toFixed(2));
+    $('#invoice_state_tax_rate_label').text(effectiveTaxRate.toFixed(2).replace(/\.00$/, ''));
+    $('#invoice_state_tax_amount').text('$' + stateTaxAmount.toFixed(2));
+    if (effectiveTaxRate > 0) {
+      $('#invoice_state_tax_row').show();
+    } else {
+      $('#invoice_state_tax_row').hide();
+    }
     $('#grand_total_amount').text('$' + totalAmount.toFixed(2));
 
-    const discountRow = $('#invoice_discount_row');
     const discountTooltip = $('.js-invoice-discount-tooltip');
+    const discountLabel = $('#invoice_discount_label');
     const appliedDiscountTitle = (discountResult.rule && discountResult.rule.title) ? discountResult.rule.title : null;
     currentDiscountTitle = hasPersistedInvoiceDiscount ? (persistedInvoiceDiscountTitle || null) : appliedDiscountTitle;
 
@@ -11477,11 +12081,13 @@
       if (discountAmount > 0) {
         discountRow.show();
         $('#invoice_discount_amount').text('-$' + discountAmount.toFixed(2));
-        const titleForTooltip = currentDiscountTitle || '';
+        discountLabel.text((currentDiscountTitle || 'Discount') + ':');
+        const titleForTooltip = currentDiscountTitle || 'Discount';
         const tooltipText = 'The discount "' + titleForTooltip + '" is applied for ' + invoiceCustomerFullName + '.';
         discountTooltip.attr('data-tip', tooltipText);
       } else {
         discountRow.hide();
+        discountLabel.text('Discount:');
         discountTooltip.removeClass('tooltip-open');
       }
     }
@@ -11489,167 +12095,281 @@
     return {
       serviceTotal,
       inventoryRowsTotal,
+      subtotalAmount,
+      stateTaxAmount,
+      stateTaxRate: effectiveTaxRate,
       discountAmount,
       discountRule: discountResult.rule || null,
       totalAmount
     };
   }
 
-  function saveInvoice(appointmentId) {
+  function updateDetailSectionSummaryFromInvoice(items, totals) {
+    const estimatedPriceEl = $('#detail_estimated_price_text');
+    if (estimatedPriceEl.length && totals && Number.isFinite(totals.totalAmount)) {
+      estimatedPriceEl.text('$' + Number(totals.totalAmount).toFixed(2));
+    }
+
+    const names = Array.isArray(items)
+      ? items
+          .filter(function(item) {
+            const itemType = String((item && item.type) || '').trim().toLowerCase();
+            return itemType === 'custom' || itemType === 'inventory';
+          })
+          .map(function(item) {
+            return String((item && item.description) || '').trim();
+          })
+          .filter(function(name) {
+            return name.length > 0;
+          })
+      : [];
+
+    const uniqueNames = Array.from(new Set(names));
+    const itemsRow = $('#detail_invoice_items_row');
+    const itemsText = $('#detail_invoice_items_text');
+
+    if (!itemsRow.length || !itemsText.length) {
+      return;
+    }
+
+    if (uniqueNames.length > 0) {
+      itemsText.text(uniqueNames.join(', '));
+      itemsRow.removeClass('hidden');
+    } else {
+      itemsText.text('');
+      itemsRow.addClass('hidden');
+    }
+  }
+
+  function formatInvoiceCurrency(value) {
+    const amount = Number(value || 0);
+    return '$' + amount.toFixed(2);
+  }
+
+  function resolveInvoiceStatusMeta(status) {
+    const normalizedStatus = String(status || 'draft').toLowerCase();
+
+    switch (normalizedStatus) {
+      case 'paid':
+        return { label: 'Paid', classes: 'badge-success' };
+      case 'partially_paid':
+        return { label: 'Partially Paid', classes: 'badge-warning' };
+      case 'sent':
+        return { label: 'Sent', classes: 'badge-info' };
+      case 'void':
+        return { label: 'Void', classes: 'badge-error' };
+      case 'finalized':
+        return { label: 'Finalized', classes: 'badge-secondary' };
+      default:
+        return { label: 'Draft', classes: 'badge-ghost' };
+    }
+  }
+
+  function applyInvoicePaymentSummary(summary) {
+    if (!summary) {
+      return;
+    }
+
+    const shouldShowSummary = String(summary.status || 'draft').toLowerCase() !== 'draft'
+      || parseFloat(summary.payments_received || 0) > 0;
+    const onlinePayment = parseFloat(summary.online_payment || 0);
+    const inPersonPayment = parseFloat(summary.in_person_payment || 0);
+
+    $('#invoice_payment_summary_row_online').toggleClass('hidden', !(shouldShowSummary && onlinePayment > 0));
+    $('#invoice_payment_summary_row_in_person').toggleClass('hidden', !(shouldShowSummary && inPersonPayment > 0));
+    $('#invoice_payment_summary_row_balance').toggleClass('hidden', !shouldShowSummary);
+    $('#invoice_payment_summary_row_status').toggleClass('hidden', !shouldShowSummary);
+
+    $('#online_payment_amount').text(formatInvoiceCurrency(onlinePayment));
+    $('#in_person_payment_amount').text(formatInvoiceCurrency(inPersonPayment));
+    $('#balance_due_amount').text(formatInvoiceCurrency(parseFloat(summary.balance_due || 0)));
+
+    const statusMeta = resolveInvoiceStatusMeta(summary.status);
+    $('#invoice_status_badge')
+      .attr('class', 'badge badge-soft badge-sm ' + statusMeta.classes)
+      .text(statusMeta.label);
+
+    invoiceRuntimeStatus = String(summary.status || invoiceRuntimeStatus || 'draft').toLowerCase();
+  }
+
+  function renderPaymentMethodOptions(status) {
+    const normalizedStatus = (status || '').toLowerCase();
+    const paymentMethod = $('#payment_method');
+    paymentMethod.empty();
+
+    paymentMethod.append($('<option>').val('').text('Select payment type'));
+    paymentMethod.append($('<option>').val('cash').text('Cash'));
+    paymentMethod.append($('<option>').val('check').text('Check'));
+    paymentMethod.append($('<option>').val('terminal_card').text('Credit Card (Terminal)'));
+
+    paymentMethod.val('');
+    $('#authorization_code').val('');
+    $('#authorization_code_field').addClass('hidden');
+    $('#payment_method').removeClass('hidden');
+    $('#payment_method_static').addClass('hidden');
+  }
+
+  $('#payment_method').on('change', function() {
+    const isTerminalCard = $(this).val() === 'terminal_card';
+    $('#authorization_code_field').toggleClass('hidden', !isTerminalCard);
+    $('#authorization_code').prop('required', isTerminalCard);
+    if (!isTerminalCard) {
+      $('#authorization_code').val('');
+    }
+  });
+
+  function toggleInvoiceButtonLoading(buttonId, isLoading, loadingLabel = 'Loading') {
+    const button = $(buttonId);
+    if (!button.length) {
+      return;
+    }
+
+    button.find('.loading').css('display', isLoading ? 'inline-block' : 'none');
+    button.prop('disabled', isLoading);
+
+    if (!button.data('default-label')) {
+      const defaultLabel = button.clone().children().remove().end().text().trim();
+      button.data('default-label', defaultLabel);
+    }
+
+    button.contents().filter(function() {
+      return this.nodeType === 3 && this.nodeValue.trim();
+    }).remove();
+
+    button.append(isLoading ? loadingLabel : button.data('default-label'));
+  }
+
+  function buildInvoiceSubmissionData(action) {
     const invoice_number = $('#invoice_number').val();
     const first_name = $('#first_name').val();
     const last_name = $('#last_name').val();
     const email = $('#email').val();
-    const issued_at = $('#issued_at').val();
-    const due_date = $('#due_date').val();
-    const paid_at = $('#paid_at').val();
-    const status = $('#status').val();
     const notes = $('#invoice_notes').val();
-    const discount_amount = parseFloat($('#invoice_discount_amount').text().replace(/[^0-9.]/g, '')) || 0;
-    const discount_title = currentDiscountTitle;
+    const items = collectInvoiceItems();
+    const status = action === 'send' ? 'sent' : (invoiceRuntimeStatus || 'draft');
+    const totals = updateTotals(status, {
+      invoiceExists,
+      invoiceStatus: invoiceRuntimeStatus
+    });
 
-    // Validate required fields
-    if (!invoice_number || !first_name || !last_name || !email || !issued_at) {
+    if (!invoice_number || !first_name || !last_name || !email) {
       $('#alert_message').text('Please fill in all required fields in the invoice form.');
       alert_modal.showModal();
+      return null;
+    }
+
+    return {
+      invoice_number: invoice_number,
+      first_name: first_name,
+      last_name: last_name,
+      email: email,
+      notes: notes,
+      status: status,
+      items: items,
+      totals: totals,
+      discount_amount: totals.discountAmount || 0,
+      discount_title: currentDiscountTitle || persistedInvoiceDiscountTitle || null
+    };
+  }
+
+  function syncPaymentModalSummary(totals, customerName) {
+    const paymentDiscountSummary = $('#payment_discount_summary');
+    const paymentDiscountText = $('#payment_discount_text');
+    const paymentDiscountMeta = $('#payment_discount_meta');
+    const invoiceTotalTooltip = $('#invoice_total_tooltip');
+    const resolvedCustomerName = customerName || invoiceCustomerFullName;
+
+    if (!paymentDiscountSummary.length || !paymentDiscountText.length || !paymentDiscountMeta.length || !invoiceTotalTooltip.length) {
       return;
     }
 
-    if (status === 'paid' && !paid_at) {
-      $('#alert_message').text('Please fill in the Paid At field when Status is Paid.');
-      alert_modal.showModal();
+    if (totals && totals.discountAmount > 0) {
+      const discountTitle = totals.discountRule && totals.discountRule.title ? totals.discountRule.title : (currentDiscountTitle || 'Discount');
+      paymentDiscountText.text('The discount "' + discountTitle + '" is applied to ' + resolvedCustomerName + '.');
+      paymentDiscountSummary.removeClass('hidden');
+      paymentDiscountMeta.show();
+      invoiceTotalTooltip.attr('data-tip', 'The discount "' + discountTitle + '" is applied for ' + resolvedCustomerName + '.');
+    } else {
+      paymentDiscountText.text('No discount applies to ' + resolvedCustomerName + '.');
+      paymentDiscountSummary.removeClass('hidden');
+      paymentDiscountMeta.hide();
+      invoiceTotalTooltip.attr('data-tip', '');
+    }
+  }
+
+  function openPaymentModalForInvoice(submission, paymentSummary = null) {
+    const balanceDue = paymentSummary && paymentSummary.balance_due !== undefined
+      ? parseFloat(paymentSummary.balance_due || 0)
+      : parseFloat(submission.totals.totalAmount || 0);
+    const payableAmount = balanceDue > 0 ? balanceDue : parseFloat(submission.totals.totalAmount || 0);
+
+    $('#payment_amount').val(payableAmount.toFixed(2));
+    renderPaymentMethodOptions('paid');
+    $('#payment_notes').val('');
+    syncPaymentModalSummary(submission.totals, invoiceCustomerFullName);
+
+    window.pendingInvoiceData = {
+      invoice_number: submission.invoice_number,
+      first_name: submission.first_name,
+      last_name: submission.last_name,
+      email: submission.email,
+      notes: submission.notes,
+      status: submission.status,
+      discount_amount: submission.discount_amount,
+      discount_title: submission.discount_title,
+      invoice_total: submission.totals.totalAmount,
+      balance_due: balanceDue
+    };
+
+    payment_modal.showModal();
+  }
+
+  function submitInvoiceAction(appointmentId, action, options = {}) {
+    const submission = buildInvoiceSubmissionData(action);
+    if (!submission) {
       return;
     }
 
-    const isGroupClass = {{ isGroupClassService($appointment->service) ? 'true' : 'false' }};
+    const buttonId = options.buttonId || (action === 'send' ? '#send_invoice_btn' : '#save_invoice_btn');
+    toggleInvoiceButtonLoading(buttonId, true);
 
-    if (status === 'paid' && !isGroupClass) {
-      if (!moment(paid_at).isValid()) {
-        $('#alert_message').text('Please provide a valid Paid At date/time.');
-        alert_modal.showModal();
-        return;
-      }
-
-      const totals = updateTotals('paid', {
-        paidAt: paid_at,
-        issuedAt: issued_at,
-        invoiceExists,
-        invoiceStatus: status
-      });
-
-      $('#payment_amount').val(totals.totalAmount.toFixed(2));
-      $('#payment_method').val('');
-      $('#payment_notes').val('');
-
-      const paymentDiscountSummary = $('#payment_discount_summary');
-      const paymentDiscountText = $('#payment_discount_text');
-      const paymentDiscountMeta = $('#payment_discount_meta');
-      const invoiceTotalTooltip = $('#invoice_total_tooltip');
-      if (totals.discountAmount > 0) {
-        const discountTitle = totals.discountRule && totals.discountRule.title ? totals.discountRule.title : (currentDiscountTitle || 'Discount');
-        paymentDiscountText.text('The discount "' + discountTitle + '" is applied to ' + invoiceCustomerFullName + '.');
-        paymentDiscountSummary.removeClass('hidden');
-        paymentDiscountMeta.show();
-        invoiceTotalTooltip.attr('data-tip', 'The discount "' + discountTitle + '" is applied for ' + invoiceCustomerFullName + '.');
-      } else {
-        paymentDiscountText.text('No discount applies to ' + invoiceCustomerFullName + '.');
-        paymentDiscountSummary.removeClass('hidden');
-        paymentDiscountMeta.hide();
-        invoiceTotalTooltip.attr('data-tip', '');
-      }
-      
-      window.pendingInvoiceData = {
-        invoice_number: invoice_number,
-        first_name: first_name,
-        last_name: last_name,
-        email: email,
-        issued_at: issued_at,
-        due_date: due_date,
-        paid_at: paid_at,
-        status: status,
-        notes: notes,
-        appointmentId: appointmentId,
-        discount_amount: totals.discountAmount || 0,
-        discount_title: totals.discountRule && totals.discountRule.title ? totals.discountRule.title : (persistedInvoiceDiscountTitle || null)
-      };
-      
-      payment_modal.showModal();
-      return;
-    }
-
-    // get items on the invoice table (services and inventory items)
-    const items = [];
-
-    // Collect service rows (main service and additional services)
-    $('#pricing_table tr.service-row').each(function() {
-      const description = $(this).find('td:nth-child(2)').text().trim();
-      const priceText = $(this).find('td:nth-child(3)').text().replace('$', '').replace(/,/g, '');
-      const price = parseFloat(priceText);
-      if (description && !isNaN(price)) {
-        items.push({ description, price, type: 'service' });
-      }
-    });
-
-    // Collect inventory items
-    $('#pricing_table tr.inventory-row').each(function() {
-      const description = $(this).find('td:nth-child(2)').text().trim();
-      const priceText = $(this).find('td:nth-child(3)').text().replace('$', '').replace(/,/g, '');
-      const price = parseFloat(priceText);
-      if (description && !isNaN(price)) {
-        items.push({ description, price, type: 'inventory' });
-      }
-    });
-
-    // Collect coat extra fee row
-    $('#pricing_table tr.coat-fee-row').each(function() {
-      const description = $(this).find('td:nth-child(2)').text().trim();
-      const priceText = $(this).find('td:nth-child(3)').text().replace('$', '').replace(/,/g, '');
-      const price = parseFloat(priceText);
-      if (description && !isNaN(price)) {
-        items.push({ description, price, type: 'service' });
-      }
-    });
-
-    // Show loading spinner in the button and disable it
-    $('#save_invoice_btn .loading').css('display', 'inline-block');
-    $('#save_invoice_btn').prop('disabled', true);
-    // Remove the original 'Save Invoice' text
-    $('#save_invoice_btn').contents().filter(function() {
-      return this.nodeType === 3 && this.nodeValue.trim() === 'Save Invoice';
-    }).remove();
-    // Add 'Loading' text
-    $('#save_invoice_btn').append('Loading');
-
-    // Send AJAX request
     $.ajax({
       url: '{{ route("save-invoice-appointment", ":id") }}'.replace(':id', appointmentId),
       method: 'POST',
       data: {
         _token: '{{ csrf_token() }}',
-        invoice_number: invoice_number,
-        first_name: first_name,
-        last_name: last_name,
-        email: email,
-        issued_at: issued_at ? moment(issued_at).format('YYYY-MM-DD HH:mm:ss') : null,
-        due_date: due_date ? moment(due_date).format('YYYY-MM-DD') : null,
-        paid_at: paid_at ? moment(paid_at).format('YYYY-MM-DD HH:mm:ss') : null,
-        status: status,
-        notes: notes,
-        items: items,
-        discount_amount: discount_amount,
-        discount_title: currentDiscountTitle || null
+        action: action,
+        invoice_number: submission.invoice_number,
+        first_name: submission.first_name,
+        last_name: submission.last_name,
+        email: submission.email,
+        status: submission.status,
+        notes: submission.notes,
+        items: submission.items,
+        discount_amount: submission.discount_amount,
+        discount_title: submission.discount_title
       },
       success: function(response) {
-        // Reset button state
-        $('#save_invoice_btn .loading').css('display', 'none');
-        $('#save_invoice_btn').prop('disabled', false);
-        $('#save_invoice_btn').contents().filter(function() {
-          return this.nodeType === 3 && this.nodeValue.trim() === 'Loading';
-        }).remove();
-        $('#save_invoice_btn').append('Save Invoice');
+        toggleInvoiceButtonLoading(buttonId, false);
 
         if (response.status) {
-          $('#success_message').text('Invoice saved successfully!');
+          if (response.payment_summary) {
+            applyInvoicePaymentSummary(response.payment_summary);
+          }
+          updateDetailSectionSummaryFromInvoice(submission.items, submission.totals);
+
+          if (options.openPaymentModal) {
+            if (response.payment_summary && parseFloat(response.payment_summary.balance_due || 0) <= 0) {
+              $('#success_message').html('Invoice is already fully paid.');
+              success_modal.showModal();
+              return;
+            }
+
+            openPaymentModalForInvoice(submission, response.payment_summary || null);
+            return;
+          }
+
+          $('#success_message').html(response.message || 'Invoice saved successfully!');
           success_modal.showModal();
         } else {
           $('#alert_message').text('Error: ' + (response.message || 'Unknown error'));
@@ -11657,24 +12377,37 @@
         }
       },
       error: function(xhr, status, error) {
-        // Reset button state
-        $('#save_invoice_btn .loading').css('display', 'none');
-        $('#save_invoice_btn').prop('disabled', false);
-        $('#save_invoice_btn').contents().filter(function() {
-          return this.nodeType === 3 && this.nodeValue.trim() === 'Loading';
-        }).remove();
-        $('#save_invoice_btn').append('Save Invoice');
+        toggleInvoiceButtonLoading(buttonId, false);
 
         console.error('Error saving invoice:', error);
-        $('#alert_message').text('Error saving invoice. Please try again.');
+        const backendMessage = xhr && xhr.responseJSON && xhr.responseJSON.message
+          ? xhr.responseJSON.message
+          : null;
+        $('#alert_message').text(backendMessage || 'Error saving invoice. Please try again.');
         alert_modal.showModal();
       }
+    });
+  }
+
+  function saveInvoice(appointmentId) {
+    submitInvoiceAction(appointmentId, 'save');
+  }
+
+  function sendInvoice(appointmentId) {
+    submitInvoiceAction(appointmentId, 'send', { buttonId: '#send_invoice_btn' });
+  }
+
+  function payInPerson(appointmentId) {
+    submitInvoiceAction(appointmentId, 'save', {
+      buttonId: '#pay_invoice_btn',
+      openPaymentModal: true
     });
   }
 
   function confirmPayment(appointmentId) {
     const amount = $('#payment_amount').val();
     const paymentMethod = $('#payment_method').val();
+    const authorizationCode = $('#authorization_code').val().trim();
     const paymentNotes = $('#payment_notes').val();
 
     if (!amount || parseFloat(amount) <= 0) {
@@ -11689,50 +12422,29 @@
       return;
     }
 
-    const items = [];
-    $('#pricing_table tr.service-row').each(function() {
-      const description = $(this).find('td:nth-child(2)').text().trim();
-      const priceText = $(this).find('td:nth-child(3)').text().replace('$', '').replace(/,/g, '');
-      const price = parseFloat(priceText);
-      if (description && !isNaN(price)) {
-        items.push({ description, price, type: 'service' });
-      }
-    });
-    $('#pricing_table tr.inventory-row').each(function() {
-      const description = $(this).find('td:nth-child(2)').text().trim();
-      const priceText = $(this).find('td:nth-child(3)').text().replace('$', '').replace(/,/g, '');
-      const price = parseFloat(priceText);
-      if (description && !isNaN(price)) {
-        items.push({ description, price, type: 'inventory' });
-      }
-    });
-    $('#pricing_table tr.coat-fee-row').each(function() {
-      const description = $(this).find('td:nth-child(2)').text().trim();
-      const priceText = $(this).find('td:nth-child(3)').text().replace('$', '').replace(/,/g, '');
-      const price = parseFloat(priceText);
-      if (description && !isNaN(price)) {
-        items.push({ description, price, type: 'service' });
-      }
-    });
+    if (paymentMethod === 'terminal_card' && !authorizationCode) {
+      $('#alert_message').text('Please enter the terminal authorization code.');
+      alert_modal.showModal();
+      return;
+    }
+
+    const items = collectInvoiceItems();
 
     $('#confirm_payment_btn .loading').css('display', 'inline-block');
     $('#confirm_payment_btn').prop('disabled', true);
 
     const invoiceData = window.pendingInvoiceData || {};
-    const currentPaidAt = invoiceData.paid_at || $('#paid_at').val() || moment().format('YYYY-MM-DD HH:mm:ss');
 
     $.ajax({
       url: '{{ route("save-invoice-appointment", ":id") }}'.replace(':id', appointmentId),
       method: 'POST',
       data: {
         _token: '{{ csrf_token() }}',
+        action: 'pay',
         invoice_number: invoiceData.invoice_number || $('#invoice_number').val(),
         first_name: invoiceData.first_name || $('#first_name').val(),
         last_name: invoiceData.last_name || $('#last_name').val(),
         email: invoiceData.email || $('#email').val(),
-        issued_at: invoiceData.issued_at ? moment(invoiceData.issued_at).format('YYYY-MM-DD HH:mm:ss') : ($('#issued_at').val() ? moment($('#issued_at').val()).format('YYYY-MM-DD HH:mm:ss') : null),
-        due_date: invoiceData.due_date ? moment(invoiceData.due_date).format('YYYY-MM-DD') : ($('#due_date').val() ? moment($('#due_date').val()).format('YYYY-MM-DD') : null),
-        paid_at: currentPaidAt ? moment(currentPaidAt).format('YYYY-MM-DD HH:mm:ss') : null,
         status: 'paid',
         notes: invoiceData.notes || $('#invoice_notes').val(),
         items: items,
@@ -11740,21 +12452,21 @@
         discount_title: invoiceData.discount_title || null,
         payment_amount: amount,
         payment_method: paymentMethod,
+        authorization_code: paymentMethod === 'terminal_card' ? authorizationCode : null,
         payment_notes: paymentNotes
       },
       success: function(response) {
         $('#confirm_payment_btn .loading').css('display', 'none');
         $('#confirm_payment_btn').prop('disabled', false);
-        payment_modal.close();
-        delete window.pendingInvoiceData;
 
         if (response.status) {
-          $('#success_message').text('Invoice saved and payment recorded successfully!');
+          if (response.payment_summary) {
+            applyInvoicePaymentSummary(response.payment_summary);
+          }
+          payment_modal.close();
+          delete window.pendingInvoiceData;
+          $('#success_message').text(response.message || 'Invoice saved and payment recorded successfully!');
           success_modal.showModal();
-          
-          setTimeout(function() {
-            window.location.reload();
-          }, 1500)
         } else {
           $('#alert_message').text('Error: ' + (response.message || 'Unknown error'));
           alert_modal.showModal();
@@ -11770,6 +12482,36 @@
       }
     });
   }
+
+  $('#appointment_late_fee').on('change', function() {
+    const $toggle = $(this);
+    const enabled = $toggle.is(':checked');
+    $toggle.prop('disabled', true);
+    $('#appointment_late_fee_label').text(enabled ? 'Yes' : 'No');
+
+    $.ajax({
+      url: '{{ route("update-appointment-late-fee", $appointment->id) }}',
+      method: 'POST',
+      data: {
+        _token: '{{ csrf_token() }}',
+        apply_late_fee: enabled ? 1 : 0
+      },
+      success: function(response) {
+        if (response.status) {
+          window.location.reload();
+          return;
+        }
+        $toggle.prop('checked', !enabled).prop('disabled', false);
+        $('#appointment_late_fee_label').text(enabled ? 'No' : 'Yes');
+      },
+      error: function(xhr) {
+        $toggle.prop('checked', !enabled).prop('disabled', false);
+        $('#appointment_late_fee_label').text(enabled ? 'No' : 'Yes');
+        $('#alert_message').text(xhr.responseJSON?.message || 'Unable to update the late fee setting.');
+        alert_modal.showModal();
+      }
+    });
+  });
 
   function confirmCompleted() {
     // Get checkout form values

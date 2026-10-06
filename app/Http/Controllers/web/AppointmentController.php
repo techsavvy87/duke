@@ -2245,221 +2245,6 @@ class AppointmentController extends Controller
         ]);
     }
 
-    public function saveInvoice(Request $request, $id)
-    {
-        // Boarding invoices use sunshine-laravel's flow (partial payments, state tax, late fees).
-        $boardingAppointment = Appointment::with('service')->find($id);
-        if ($boardingAppointment && isBoardingService($boardingAppointment->service)) {
-            return $this->saveInvoiceBoarding($request, $id);
-        }
-
-        $request->validate([
-            'invoice_number' => 'required|string',
-            'first_name' => 'required|string|max:255',
-            'last_name' => 'required|string|max:255',
-            'email' => 'required|email|max:255',
-            'issued_at' => 'nullable|date',
-            'due_date' => 'nullable|date',
-            'paid_at' => 'nullable|date',
-            'status' => 'required|in:draft,sent,paid,void',
-            'notes' => 'nullable|string|max:1000',
-            'items' => 'nullable|array',
-            'discount_title' => 'nullable|string|max:255',
-            'payment_amount' => 'nullable|numeric|min:0',
-            'payment_method' => 'nullable|in:cash,check,cc',
-            'payment_notes' => 'nullable|string|max:1000',
-        ]);
-
-        $appointment = Appointment::find($id);
-        if (!$appointment) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Appointment not found.'
-            ], 404);
-        }
-
-        // Check if invoice already exists for this appointment
-        $invoice = Invoice::where('appointment_id', $appointment->id)->first();
-         if (!$invoice) {
-            $invoice = new Invoice;
-            $invoice->appointment_id = $appointment->id;
-        }
-
-        // Check if invoice number is unique (except for current invoice)
-        $existingInvoice = Invoice::where('invoice_number', $request->invoice_number)
-            ->where('id', '!=', $invoice->id ?? 0)
-            ->first();
-        if ($existingInvoice) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Invoice number already exists.'
-            ], 422);
-        }
-
-        $invoice->customer_id = $appointment->customer_id;
-        $invoice->invoice_number = $request->invoice_number;
-        $invoice->first_name = $request->first_name;
-        $invoice->last_name = $request->last_name;
-        $invoice->email = $request->email;
-        $invoice->issued_at = $request->issued_at ? Carbon::parse($request->issued_at) : null;
-        $invoice->due_date = $request->due_date ? Carbon::parse($request->due_date) : null;
-        if ($request->status !== "draft") {
-            $invoice->discount_amount = $request->discount_amount ?? 0;
-            $invoice->discount_title = $request->discount_title ?? '';
-        }
-
-        if ($request->status === 'paid' && !$request->paid_at) {
-            $invoice->paid_at = Carbon::now();
-        } else {
-            $invoice->paid_at = $request->paid_at ? Carbon::parse($request->paid_at) : null;
-        }
-        $invoice->status = $request->status;
-        $invoice->notes = $request->notes;
-        $invoice->save();
-        appointment_audit_log($appointment->id, "Invoice status changed to " . ucfirst($invoice->status) . ". Invoice #{$invoice->invoice_number}.");
-
-        // Save invoice items
-        $items = $request->items;
-        $itemsForEmail = [];
-        if ($items && is_array($items)) {
-            // Delete existing items
-            InvoiceItem::where('invoice_id', $invoice->id)->delete();
-            // Add new items
-            foreach ($items as $itemData) {
-                $item = new InvoiceItem;
-                $item->invoice_id = $invoice->id;
-                $item->item_name = $itemData['description'] ?? '';
-                $item->price = $itemData['price'] ?? 0;
-                $item->item_type = $itemData['type'] ?? 'service';
-                $item->save();
-                $itemsForEmail[] = [
-                    'description' => $itemData['description'] ?? '',
-                    'price' => $itemData['price'] ?? 0
-                ];
-            }
-        }
-
-        $discountInfo = [
-            'discount_title' => $request->discount_title,
-            'discount_amount' => $request->discount_amount ?? 0
-        ];
-
-        if ($request->status === 'paid' && $request->payment_amount && $request->payment_method) {
-            $transaction = new Transaction;
-            $transaction->appointment_id = $appointment->id;
-            $transaction->invoice_id = $invoice->id;
-            $transaction->user_id = $appointment->customer_id;
-            $transaction->tran_date = $invoice->paid_at ?: Carbon::now();
-            $transaction->amount = $request->payment_amount;
-            $transaction->payment_method = $request->payment_method;
-            $transaction->notes = $request->payment_notes;
-            $transaction->save();
-            $this->sendInvoiceEmail($invoice, $appointment, $request->items, $discountInfo);
-        }
-
-        if ($request->status === 'sent' || ($request->status === 'paid' && $request->payment_amount)) {
-            $this->sendInvoiceEmail($invoice, $appointment, $request->items, $discountInfo);
-        }
-
-        return response()->json([
-            'status' => true,
-            'message' => $request->status === 'sent' ? 'Invoice saved and sent successfully.' : ($request->status === 'paid' && $request->payment_amount ? 'Invoice saved and payment recorded successfully.' : 'Invoice saved successfully.'),
-            'invoice_id' => $invoice->id
-        ]);
-    }
-
-    private function sendInvoiceEmail($invoice, $appointment, $items, $discountInfo = [])
-    {
-        $mainServiceItems = [];
-        $additionalServiceItems = [];
-        $inventoryItems = [];
-
-        $appointment->load('service.category');
-        $mainServiceName = $appointment->service->name ?? '';
-
-        $additionalServiceNames = [];
-        if ($appointment->additional_service_ids) {
-            $additionalIds = explode(',', $appointment->additional_service_ids);
-            $additionalServices = Service::whereIn('id', $additionalIds)->get();
-            $additionalServiceNames = $additionalServices->pluck('name')->toArray();
-        }
-
-        $groupClassNames = [];
-        if (isGroupClassService($appointment->service) && $appointment->metadata && isset($appointment->metadata['group_class_ids'])) {
-            $groupClassIds = explode(',', $appointment->metadata['group_class_ids']);
-            $groupClasses = GroupClass::whereIn('id', $groupClassIds)->get();
-            $groupClassNames = $groupClasses->pluck('name')->toArray();
-        }
-
-        $totalServicePrice = 0;
-        $totalInventoryAmount = 0;
-
-        if ($items && is_array($items)) {
-            foreach ($items as $itemData) {
-                $itemType = $itemData['type'] ?? 'service';
-                $itemDescription = $itemData['description'] ?? '';
-                $itemPrice = floatval($itemData['price'] ?? 0);
-
-                if ($itemType === 'inventory') {
-                    $inventoryItems[] = [
-                        'description' => $itemDescription,
-                        'price' => $itemPrice
-                    ];
-                    $totalInventoryAmount += $itemPrice;
-                } elseif ($itemType === 'service') {
-                    if (isGroupClassService($appointment->service) && in_array($itemDescription, $groupClassNames)) {
-                        $mainServiceItems[] = [
-                            'description' => $itemDescription,
-                            'price' => $itemPrice
-                        ];
-                    } elseif ($itemDescription === $mainServiceName) {
-                        $mainServiceItems[] = [
-                            'description' => $itemDescription,
-                            'price' => $itemPrice
-                        ];
-                    } elseif (in_array($itemDescription, $additionalServiceNames)) {
-                        $additionalServiceItems[] = [
-                            'description' => $itemDescription,
-                            'price' => $itemPrice
-                        ];
-                    } else {
-                        $mainServiceItems[] = [
-                            'description' => $itemDescription,
-                            'price' => $itemPrice
-                        ];
-                    }
-                    $totalServicePrice += $itemPrice;
-                }
-            }
-        }
-
-        $estimatedPrice = floatval($appointment->estimated_price ?? 0);
-        $discountAmount = floatval($discountInfo['discount_amount'] ?? 0);
-        $totalAmount = max(0, $estimatedPrice - $discountAmount + $totalInventoryAmount);
-
-        $emailData = [
-            'invoice_number' => $invoice->invoice_number,
-            'first_name' => $invoice->first_name,
-            'last_name' => $invoice->last_name,
-            'issued_at' => $invoice->issued_at,
-            'due_date' => $invoice->due_date,
-            'status' => $invoice->status,
-            'notes' => $invoice->notes,
-            'main_service_items' => $mainServiceItems,
-            'additional_service_items' => $additionalServiceItems,
-            'inventory_items' => $inventoryItems,
-            'total_service_price' => $totalServicePrice,
-            'estimated_price' => $estimatedPrice,
-            'discount_title' => $discountInfo['discount_title'] ?? null,
-            'discount_amount' => $discountAmount,
-            'total_inventory_amount' => $totalInventoryAmount,
-            'total' => $totalAmount,
-            'total_amount' => $totalAmount
-        ];
-
-        Mail::to($invoice->email)->send(new InvoiceMail($emailData));
-    }
-
     public function sendCustomerEmail(Request $request, $id)
     {
         $request->validate([
@@ -5511,9 +5296,9 @@ class AppointmentController extends Controller
     | Boarding appointment detail page (ported from sunshine-laravel)
     |--------------------------------------------------------------------------
     | Backs the boarding branch of dashboard/appointment.blade.php. Kept identical
-    | to sunshine-laravel's AppointmentController so the two can be diffed. Admin
-    | keeps its own saveInvoice()/sendInvoiceEmail() for the other services, so
-    | sunshine's versions are saveInvoiceBoarding() and sendInvoiceEmailBoarding().
+    | to sunshine-laravel's AppointmentController so the two can be diffed.
+    | saveInvoice()/sendInvoiceEmail() are sunshine's and serve every service's
+    | invoice section on the appointment detail page.
     */
 
     public function updateLateFeeSetting(Request $request, $id)
@@ -5906,7 +5691,7 @@ class AppointmentController extends Controller
         return $base;
     }
 
-    private function saveInvoiceBoarding(Request $request, $id)
+    public function saveInvoice(Request $request, $id)
     {
         $rules = [
             'action' => 'nullable|in:save,send,pay',
@@ -6076,17 +5861,7 @@ class AppointmentController extends Controller
             $remainingBalance = round(floatval($paymentSummary['balance_due'] ?? 0), 2);
 
             if ($paymentResult['created']) {
-                // Admin adaptation: admin's notifications.metadata column is varchar(255) (sunshine's database has it
-                // as text), so the payment notification can fail to insert. The payment itself is already recorded.
-                try {
-                    $paymentService->createAdminPaymentNotifications($invoice->fresh(), $paymentResult['transaction'], $paymentSummary);
-                } catch (\Throwable $e) {
-                    Log::warning('Failed to create invoice payment notifications.', [
-                        'appointment_id' => $appointment->id,
-                        'invoice_id' => $invoice->id,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
+                $paymentService->createAdminPaymentNotifications($invoice->fresh(), $paymentResult['transaction'], $paymentSummary);
             }
 
             $transactionPayload = [
@@ -6108,9 +5883,7 @@ class AppointmentController extends Controller
 
         if ($action === 'send') {
             $sendAmount = round(floatval($paymentSummary['balance_due'] ?? 0), 2);
-            // Admin adaptation: the online payment page (sunshine-laravel's web\PaymentController) is not in admin,
-            // so no payment link is created or emailed until that page exists here.
-            if ($sendAmount > 0 && class_exists(\App\Http\Controllers\web\PaymentController::class)) {
+            if ($sendAmount > 0) {
                 // Reuse existing pending/processing payment link for this invoice if present
                 $paymentLink = \App\Models\PaymentLink::where('invoice_id', $invoice->id)
                     ->whereIn('status', ['pending', 'processing'])
@@ -6131,7 +5904,7 @@ class AppointmentController extends Controller
         $emailFailed = false;
         if ($action === 'send') {
             try {
-                $this->sendInvoiceEmailBoarding($invoice, $appointment, $items, $discountInfo, $paymentLink);
+                $this->sendInvoiceEmail($invoice, $appointment, $items, $discountInfo, $paymentLink);
             } catch (\Throwable $e) {
                 $emailFailed = true;
                 Log::error('Failed to send invoice email after saving invoice.', [
@@ -6192,7 +5965,7 @@ class AppointmentController extends Controller
         return $user->roles()->whereRaw('LOWER(title) in (?, ?)', ['owner', 'admin'])->exists();
     }
 
-    private function sendInvoiceEmailBoarding($invoice, $appointment, $items, $discountInfo = [], $paymentLinkOrUrl = null)
+    private function sendInvoiceEmail($invoice, $appointment, $items, $discountInfo = [], $paymentLinkOrUrl = null)
     {
         $invoice->loadMissing('items');
         $invoiceItemSummary = $this->summarizeInvoiceItemsFromInvoice($invoice);
