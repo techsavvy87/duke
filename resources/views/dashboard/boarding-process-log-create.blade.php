@@ -6,7 +6,7 @@
   <style>
     .select2-container--default .select2-selection--multiple {
       min-height: 40px;
-      height: 40px;
+      height: auto;
       overflow-y: auto;
       overflow-x: hidden !important;
       white-space: normal !important;
@@ -29,6 +29,28 @@
       cursor: pointer;
       transition: all 0.2s;
       box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+    }
+    .workflow-tabs {
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 0.75rem;
+      overflow-x: auto;
+    }
+    .workflow-tabs .workflow-tab {
+      flex: 0 0 calc((100% - 3.75rem) / 6);
+      min-width: 10.5rem;
+    }
+    .workflow-tabs .workflow-tab .card-body > div:last-child {
+      width: 100%;
+      justify-content: center;
+    }
+    @media (min-width: 1280px) {
+      .workflow-tabs {
+        overflow-x: visible;
+      }
+      .workflow-tabs .workflow-tab {
+        min-width: 0;
+      }
     }
     .workflow-tab.active {
       background-color: color-mix(in oklab, var(--color-primary) 5%, transparent);
@@ -92,9 +114,9 @@
           <div class="col-span-1 xl:col-span-2 2xl:col-span-3">
 
             {{-- Tabs Section (replacing cloud storage cards) --}}
-            <div class="grid gap-6 md:grid-cols-2 2xl:grid-cols-5 mb-6">
-              <div class="workflow-tab card bg-base-100 cursor-pointer shadow transition-all hover:shadow-md active" data-tab="am-feeding-meds">
-                <div class="card-body p-4">
+            <div class="workflow-tabs mb-6">
+              <div class="workflow-tab card bg-base-100 cursor-pointer shadow transition-all hover:shadow-md" data-tab="am-feeding-meds">
+                <div class="card-body p-4 items-center text-center">
                   <div class="bg-base-200 rounded-box size-12 flex items-center justify-center mb-2" style="width: 2.5rem; height: 2.5rem;">
                     <span class="iconify lucide--sun text-primary size-6"></span>
                   </div>
@@ -104,7 +126,7 @@
                 </div>
               </div>
               <div class="workflow-tab card bg-base-100 cursor-pointer shadow transition-all hover:shadow-md" data-tab="nose-to-tail">
-                <div class="card-body p-4">
+                <div class="card-body p-4 items-center text-center">
                   <div class="bg-base-200 rounded-box size-12 flex items-center justify-center mb-2" style="width: 2.5rem; height: 2.5rem;">
                     <span class="iconify lucide--search text-success size-6"></span>
                   </div>
@@ -114,7 +136,7 @@
                 </div>
               </div>
               <div class="workflow-tab card bg-base-100 cursor-pointer shadow transition-all hover:shadow-md" data-tab="treatment-lunch-rest">
-                <div class="card-body p-4">
+                <div class="card-body p-4 items-center text-center">
                   <div class="bg-base-200 rounded-box size-12 flex items-center justify-center mb-2" style="width: 2.5rem; height: 2.5rem;">
                     <span class="iconify lucide--heart text-warning size-6"></span>
                   </div>
@@ -124,7 +146,7 @@
                 </div>
               </div>
               <div class="workflow-tab card bg-base-100 cursor-pointer shadow transition-all hover:shadow-md" data-tab="pm-feeding-meds">
-                <div class="card-body p-4">
+                <div class="card-body p-4 items-center text-center">
                   <div class="bg-base-200 rounded-box size-12 flex items-center justify-center mb-2" style="width: 2.5rem; height: 2.5rem;">
                     <span class="iconify lucide--moon text-info size-6"></span>
                   </div>
@@ -133,8 +155,30 @@
                   </div>
                 </div>
               </div>
+              <div class="workflow-tab card bg-base-100 cursor-pointer shadow transition-all hover:shadow-md" data-tab="prn">
+                <div class="card-body p-4 items-center text-center">
+                  <div class="bg-base-200 rounded-box size-12 flex items-center justify-center mb-2" style="width: 2.5rem; height: 2.5rem;">
+                    <svg xmlns="http://www.w3.org/2000/svg"
+                        width="24"
+                        height="24"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="#f31260"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        class="lucide lucide-pill-icon lucide-pill">
+                      <path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z"/>
+                      <path d="m8.5 8.5 7 7"/>
+                    </svg>
+                  </div>
+                  <div class="flex items-center justify-between">
+                    <p class="text-sm font-medium">PRN Meds</p>
+                  </div>
+                </div>
+              </div>
               <div class="workflow-tab card bg-base-100 cursor-pointer shadow transition-all hover:shadow-md" data-tab="reports">
-                <div class="card-body p-4">
+                <div class="card-body p-4 items-center text-center">
                   <div class="bg-base-200 rounded-box size-12 flex items-center justify-center mb-2" style="width: 2.5rem; height: 2.5rem;">
                     <span class="iconify lucide--file-text text-secondary size-6"></span>
                   </div>
@@ -146,7 +190,7 @@
             </div>
 
             {{-- Process Detail Section (Details Table) --}}
-            <h3 class="mt-6 font-medium">Process Detail</h3>
+            <h3 id="process_detail_title" class="mt-6 font-medium">Process Detail</h3>
             <div class="mt-3">
               <div class="card card-border bg-base-100">
                 <div class="card-body p-0">
@@ -174,8 +218,8 @@
                           </th>
                           <th>Pet Name</th>
                           <th>Customer</th>
-                          <th class="food-column">Dry Food</th>
-                          <th class="food-column">Wet Food</th>
+                          <th class="food-column dry-food-column">Dry Food</th>
+                          <th class="food-column wet-food-column">Wet Food</th>
                           <th class="meds-column">Meds</th>
                           <th class="issue-column" style="display:none;">Issue</th>
                         </tr>
@@ -190,16 +234,11 @@
                     <div id="no_details_message" class="p-8 text-center text-base-content/70">
                       <p>Click on a process item to view pet details</p>
                     </div>
-                    {{-- Check Pet Form Table --}}
-                    <div id="check_pet_form_container" class="p-4 overflow-auto" style="display: none;">
-                      <table class="table" id="check_pet_table">
-                        <thead id="check_pet_thead">
-                          {{-- Table headers will be dynamically generated here --}}
-                        </thead>
-                        <tbody id="check_pet_tbody">
-                          {{-- Table rows will be dynamically generated here --}}
-                        </tbody>
-                      </table>
+                    {{-- Check Pet Form --}}
+                    <div id="check_pet_form_container" class="p-4" style="display: none;">
+                      <div id="check_pet_accordion" class="space-y-3">
+                        {{-- Accordion items will be dynamically generated here --}}
+                      </div>
                     </div>
                     {{-- Treatment Plan Form Table --}}
                     <div id="treatment_plan_form_container" class="p-4 overflow-auto" style="display: none;">
@@ -231,6 +270,13 @@
                         <tbody id="treatment_lunch_rest_tbody">
                           {{-- Rows set by JS per step --}}
                         </tbody>
+                      </table>
+                    </div>
+                    {{-- PRN Meds Form Table --}}
+                    <div id="prn_form_container" class="p-4 overflow-auto" style="display: none;">
+                      <table class="table" id="prn_table">
+                        <thead id="prn_thead"></thead>
+                        <tbody id="prn_tbody"></tbody>
                       </table>
                     </div>
                     {{-- End of Day: report tables (loaded via AJAX) --}}
@@ -348,8 +394,80 @@
   let workflowData = {};
   let lastLunchCheckinData = null;
   let lastRestCheckinData = null;
+  let checkinRestMetaByAppointmentId = {};
+  let isLoadingCheckinRestMeta = false;
   let yesterdayNextDayPetIds = [];
   let yesterdayReportsPmIssues = {};
+  let yesterdayReportsPmStatuses = {};
+
+  function isTruthyBoardingValue(value) {
+    return value === true || value === 'true' || value === 1 || value === '1';
+  }
+
+  function getWorkflowItemId(item) {
+    if (!item) return null;
+    const workflowId = parseInt(item.workflow_id ?? item.pet_id ?? item.appointment_id, 10);
+    return isNaN(workflowId) ? null : workflowId;
+  }
+
+  function getSelectedRequestAppointmentIds() {
+    const appointmentIds = (selectedAppointmentIds || []).map(function(workflowId) {
+      const pet = appointmentToPetMap[workflowId] || appointmentToPetMap[String(workflowId)] || null;
+      if (pet && pet.appointment_id) {
+        return parseInt(pet.appointment_id, 10);
+      }
+
+      const fallbackId = parseInt(workflowId, 10);
+      return isNaN(fallbackId) ? null : fallbackId;
+    }).filter(function(id) {
+      return !isNaN(id) && id > 0;
+    });
+
+    return [...new Set(appointmentIds)];
+  }
+
+  function updateCheckinRestMetaFromData(checkinData) {
+    if (!Array.isArray(checkinData)) return;
+    checkinData.forEach(function(item) {
+      const workflowId = getWorkflowItemId(item);
+      if (workflowId === null) return;
+      const restRequired = item.rest_required === true || item.rest_required === 'true' || item.rest_required === 1 || item.rest_required === '1';
+      const scheduledRest = item.scheduled_rest === true || item.scheduled_rest === 'true' || item.scheduled_rest === 1 || item.scheduled_rest === '1';
+      checkinRestMetaByAppointmentId[String(workflowId)] = {
+        is_assigned: restRequired || scheduledRest,
+        rest_note: ((item.rest_note || '') + '').trim()
+      };
+    });
+  }
+
+  function ensureCheckinRestMetaLoaded() {
+    if (isLoadingCheckinRestMeta) return;
+    if (!selectedAppointmentIds || selectedAppointmentIds.length === 0) return;
+    const hasMissing = selectedAppointmentIds.some(function(id) {
+      return !(String(id) in checkinRestMetaByAppointmentId);
+    });
+    if (!hasMissing) return;
+
+    isLoadingCheckinRestMeta = true;
+    $.ajax({
+      url: '{{ route("boarding-process-log-get-checkin-data") }}',
+      method: 'POST',
+      data: {
+        _token: '{{ csrf_token() }}',
+        appointment_ids: getSelectedRequestAppointmentIds()
+      },
+      success: function(response) {
+        const data = response && response.success && Array.isArray(response.data) ? response.data : [];
+        updateCheckinRestMetaFromData(data);
+        if (currentProcessItem === 'treatment_plan') {
+          renderTreatmentPlanForm();
+        }
+      },
+      complete: function() {
+        isLoadingCheckinRestMeta = false;
+      }
+    });
+  }
 
   const tabProcesses = {
     'am-feeding-meds': [
@@ -365,7 +483,7 @@
     ],
     'treatment-lunch-rest': [
       { id: 'treatments_tlr', name: 'Treatments', icon: 'lucide--heart' },
-      { id: 'next_day_treatment_list_tlr', name: "Next Day's Treatment List", icon: 'lucide--calendar' },
+      { id: 'next_day_treatment_list_tlr', name: "Next Day's Treatments", icon: 'lucide--calendar' },
       { id: 'lunch_tlr', name: 'Lunch', icon: 'lucide--book-open-text' },
       { id: 'rest_tlr', name: 'Rest', icon: 'lucide--moon' }
     ],
@@ -376,35 +494,61 @@
       { id: 'meds_dispense_pm', name: 'Meds Dispense (PM)', icon: 'lucide--check' },
       { id: 'reports_pm', name: 'Reports', icon: 'lucide--file-text' }
     ],
+    'prn': [
+      { id: 'prn_meds', name: 'PRN Meds', icon: 'lucide--heart-pulse' }
+    ],
     'reports': [
       { id: 'dne_list_am', name: 'DNE list (AM)', icon: 'lucide--ban' },
       { id: 'treatment_concern', name: 'Nose to Tail Issues/Concerns', icon: 'lucide--check' },
       { id: 'report_lunch', name: 'Lunch', icon: 'lucide--book-open-text' },
       { id: 'report_rest', name: 'Rest', icon: 'lucide--moon' },
       { id: 'dne_list_pm', name: 'DNE list (PM)', icon: 'lucide--ban' },
+      { id: 'report_prn', name: 'PRN', icon: 'lucide--heart-pulse' },
       { id: 'end_of_day', name: 'End of Day', icon: 'lucide--file-text' }
     ]
   };
 
+  function updateProcessDetailTitle(stepTitle = null) {
+    const baseTitle = 'Process Detail';
+    const title = stepTitle ? `${baseTitle}: ${stepTitle}` : baseTitle;
+    $('#process_detail_title').text(title);
+  }
+
   @foreach($boardingAppointments as $appointment)
-    @if($appointment->pet)
-      appointmentToPetMap[{{ $appointment->id }}] = {
-        pet_id: {{ $appointment->pet->id }},
-        pet_name: '{{ addslashes($appointment->pet->name ?? 'N/A') }}',
-        pet_img: '{{ $appointment->pet->pet_img ?? '' }}',
-        customer_name: '{{ $appointment->customer && $appointment->customer->profile ? addslashes($appointment->customer->profile->first_name . ' ' . $appointment->customer->profile->last_name) : 'N/A' }}',
-        customer_avatar: '{{ $appointment->customer && $appointment->customer->profile ? ($appointment->customer->profile->avatar_img ?? '') : '' }}',
-        appointment_id: {{ $appointment->id }}
-      };
-      selectedAppointmentIds.push({{ $appointment->id }});
-    @endif
+    @php
+      $workflowPets = $appointment->familyPets ?? collect();
+      if ($workflowPets->isEmpty() && $appointment->pet) {
+        $workflowPets = collect([$appointment->pet]);
+      }
+      $isFamilyAppointment = $workflowPets->count() > 1;
+    @endphp
+    @foreach($workflowPets as $workflowPet)
+      @if($workflowPet)
+        @php
+          $workflowId = $isFamilyAppointment ? (int) $workflowPet->id : (int) $appointment->id;
+        @endphp
+        appointmentToPetMap[{{ $workflowId }}] = {
+          workflow_id: {{ $workflowId }},
+          pet_id: {{ $workflowPet->id }},
+          pet_name: '{{ addslashes($workflowPet->name ?? 'N/A') }}',
+          pet_img: '{{ $workflowPet->pet_img ?? '' }}',
+          customer_name: '{{ $appointment->customer && $appointment->customer->profile ? addslashes($appointment->customer->profile->first_name . ' ' . $appointment->customer->profile->last_name) : 'N/A' }}',
+          customer_avatar: '{{ $appointment->customer && $appointment->customer->profile ? ($appointment->customer->profile->avatar_img ?? '') : '' }}',
+          appointment_id: {{ $appointment->id }}
+        };
+        selectedAppointmentIds.push({{ $workflowId }});
+      @endif
+    @endforeach
   @endforeach
+
+  selectedAppointmentIds = [...new Set(selectedAppointmentIds.map(function(id) { return parseInt(id, 10); }).filter(function(id) { return !isNaN(id); }))];
 
   function fetchYesterdayNextDayPetIds() {
     const date = $('#workflow_date').val();
     if (!date || selectedAppointmentIds.length === 0) {
       yesterdayNextDayPetIds = [];
       yesterdayReportsPmIssues = {};
+      yesterdayReportsPmStatuses = {};
       return;
     }
     $.ajax({
@@ -413,16 +557,19 @@
       data: {
         _token: '{{ csrf_token() }}',
         date: date,
-        appointment_ids: selectedAppointmentIds
+        appointment_ids: getSelectedRequestAppointmentIds(),
+        workflow_ids: selectedAppointmentIds
       },
       dataType: 'json',
       success: function(response) {
         if (response.success && Array.isArray(response.yesterday_pet_ids)) {
           yesterdayNextDayPetIds = response.yesterday_pet_ids;
           yesterdayReportsPmIssues = response.yesterday_reports_pm_issues || {};
+          yesterdayReportsPmStatuses = response.yesterday_reports_pm_statuses || {};
         } else {
           yesterdayNextDayPetIds = [];
           yesterdayReportsPmIssues = {};
+          yesterdayReportsPmStatuses = {};
         }
         // Re-render current TLR step so Treatment List includes yesterday's Next Day pets
         if (currentTab === 'treatment-lunch-rest' && currentProcessItem) {
@@ -436,6 +583,7 @@
       error: function() {
         yesterdayNextDayPetIds = [];
         yesterdayReportsPmIssues = {};
+        yesterdayReportsPmStatuses = {};
       }
     });
   }
@@ -449,7 +597,7 @@
     $('.workflow-tab').removeClass('active');
     $(this).addClass('active');
     currentTab = $(this).data('tab');
-    if (currentTab === 'reports') {
+    if (currentTab === 'reports' || currentTab === 'prn') {
       $('#process_detail_search_bar').hide();
     } else {
       $('#process_detail_search_bar').show();
@@ -457,12 +605,15 @@
     if (currentTab === 'treatment-lunch-rest') fetchYesterdayNextDayPetIds();
     loadProcessItems(currentTab);
     currentProcessItem = null;
+    updateProcessDetailTitle();
     updatePetCountsDisplay(0, null);
     $('#pet_details_table').hide();
     $('#empty_state_message').hide();
     $('#check_pet_form_container').hide();
     $('#treatment_plan_form_container').hide();
     $('#treatment_lunch_rest_form_container').hide();
+    $('#prn_form_container').hide();
+    $('#end_of_day_form_container').hide();
     $('#no_details_message').show();
     $('#save_details_btn_container').hide();
     $('#staff_sign_off_container').hide();
@@ -539,10 +690,14 @@
         processId === 'dne_list_pm' ||
         processId === 'report_lunch' ||
         processId === 'report_rest' ||
+        processId === 'report_prn' ||
         processId === 'treatment_concern' ||
         processId === 'end_of_day'
       ) {
         return 'bg-success/20 text-secondary';
+      }
+      if (processId === 'prn_meds') {
+        return 'bg-error/20 text-error';
       }
       return 'bg-base-300 text-base-content';
     };
@@ -552,7 +707,7 @@
       const colorClass = getProcessColor(process.id);
       const processData = workflowData[process.id];
       const isActive = processData ? 'opacity-100' : 'opacity-70';
-      const showCompleted = processData && !(process.id === 'end_of_day' && tab === 'reports');
+      const showCompleted = processData && !(process.id === 'end_of_day' && tab === 'reports') && !(process.id === 'report_prn' && tab === 'reports');
       
       html += `
         <li class="process-item ${isActive}" data-process-id="${process.id}">
@@ -579,20 +734,28 @@
       $('.process-item').removeClass('active');
       $(this).addClass('active');
       currentProcessItem = $(this).data('process-id');
+      const stepTitle = $(this).find('.timeline-end span').first().text().trim();
+      updateProcessDetailTitle(stepTitle || null);
       toggleTableColumns(currentProcessItem);
       loadPetDetails();
     });
   }
 
   function toggleTableColumns(processId) {
-    const reportsTabStepsWithIssue = ['dne_list_am', 'dne_list_pm', 'report_lunch', 'report_rest', 'treatment_concern', 'end_of_day'];
+    const reportsTabStepsWithIssue = ['dne_list_am', 'dne_list_pm', 'report_lunch', 'report_rest', 'report_prn', 'treatment_concern', 'end_of_day'];
+      const isFeedingDispenseStep = processId === 'feeding_am' || processId === 'feeding_pm';
+    const isFeedingReportStep = processId === 'reports_am' || processId === 'reports_pm';
+    $('#pet_details_table thead .dry-food-column').text(isFeedingReportStep ? 'Status' : 'Dry Food');
+    $('#pet_details_table thead .wet-food-column').text('Wet Food');
+    $('#pet_details_table thead .issue-column').text(isFeedingDispenseStep ? 'Partial Meal' : (isFeedingReportStep ? 'Issue/Detail' : 'Issue'));
     if (processId === 'reports_am' || processId === 'reports_pm') {
       $('.pet-details-checkbox-col').hide();
     } else {
       $('.pet-details-checkbox-col').show();
     }
     if (processId === 'reports_am' || processId === 'reports_pm') {
-      $('.food-column').hide();
+      $('.dry-food-column').show();
+      $('.wet-food-column').hide();
       $('.meds-column').hide();
       $('.issue-column').show();
     }
@@ -601,10 +764,15 @@
       $('.meds-column').hide();
       $('.issue-column').show();
     }
-    else if (processId === 'food_prep_am' || processId === 'food_prep_pm' || processId === 'feeding_am' || processId === 'feeding_pm') {
+    else if (processId === 'food_prep_am' || processId === 'food_prep_pm') {
       $('.food-column').show();
       $('.meds-column').hide();
       $('.issue-column').hide();
+    }
+    else if (isFeedingDispenseStep) {
+      $('.food-column').show();
+      $('.meds-column').hide();
+      $('.issue-column').show();
     }
     else if (processId === 'meds_prep_am' || processId === 'meds_prep_pm' || processId === 'meds_dispense_am' || processId === 'meds_dispense_pm') {
       $('.food-column').hide();
@@ -628,17 +796,34 @@
     $('#check_pet_form_container').hide();
     $('#treatment_plan_form_container').hide();
     $('#treatment_lunch_rest_form_container').hide();
+    $('#prn_form_container').hide();
     $('#end_of_day_form_container').hide();
     $('#dne_list_search_bar').hide();
     $('#save_details_btn_container').hide();
     $('#staff_sign_off_container').hide();
 
     if (currentProcessItem === 'check_pet') {
-      renderCheckPetForm();
       $('#check_pet_form_container').show();
-      loadStaffSignOff();
-      $('#save_details_btn_container').show();
-      $('#staff_sign_off_container').show();
+      $('#check_pet_accordion').html('<div class="text-center p-4 text-base-content/70">Loading...</div>');
+      $.ajax({
+        url: '{{ route("boarding-process-log-get-checkin-data") }}',
+        method: 'POST',
+        data: { _token: '{{ csrf_token() }}', appointment_ids: getSelectedRequestAppointmentIds() },
+        success: function(response) {
+          const checkinData = response.success && response.data ? response.data : [];
+          updateCheckinRestMetaFromData(checkinData);
+          renderCheckPetForm();
+          loadStaffSignOff();
+          $('#save_details_btn_container').show();
+          $('#staff_sign_off_container').show();
+        },
+        error: function() {
+          renderCheckPetForm();
+          loadStaffSignOff();
+          $('#save_details_btn_container').show();
+          $('#staff_sign_off_container').show();
+        }
+      });
       return;
     }
 
@@ -663,7 +848,7 @@
       $.ajax({
         url: '{{ route("boarding-process-log-get-checkin-data") }}',
         method: 'POST',
-        data: { _token: '{{ csrf_token() }}', appointment_ids: selectedAppointmentIds },
+        data: { _token: '{{ csrf_token() }}', appointment_ids: getSelectedRequestAppointmentIds() },
         success: function(response) {
           const data = response.success && response.data ? response.data : null;
           lastLunchCheckinData = data;
@@ -699,7 +884,7 @@
       $.ajax({
         url: '{{ route("boarding-process-log-get-checkin-data") }}',
         method: 'POST',
-        data: { _token: '{{ csrf_token() }}', appointment_ids: selectedAppointmentIds },
+        data: { _token: '{{ csrf_token() }}', appointment_ids: getSelectedRequestAppointmentIds() },
         success: function(response) {
           const data = response.success && response.data ? response.data : null;
           lastRestCheckinData = data;
@@ -769,7 +954,7 @@
       $.ajax({
         url: '{{ route("boarding-process-log-get-checkin-data") }}',
         method: 'POST',
-        data: { _token: '{{ csrf_token() }}', appointment_ids: selectedAppointmentIds },
+        data: { _token: '{{ csrf_token() }}', appointment_ids: getSelectedRequestAppointmentIds() },
         success: function(response) {
           renderDneListForm(amOrPm, response.success && response.data ? response.data : null);
           loadStaffSignOff();
@@ -834,7 +1019,7 @@
       $.ajax({
         url: '{{ route("boarding-process-log-get-checkin-data") }}',
         method: 'POST',
-        data: { _token: '{{ csrf_token() }}', appointment_ids: selectedAppointmentIds },
+        data: { _token: '{{ csrf_token() }}', appointment_ids: getSelectedRequestAppointmentIds() },
         success: function(response) {
           const checkinData = response.success && response.data ? response.data : null;
           renderReportRestForm(checkinData);
@@ -849,6 +1034,30 @@
       renderTreatmentConcernForm();
       $('#treatment_lunch_rest_form_container').show();
       loadStaffSignOff();
+      return;
+    }
+    if (currentProcessItem === 'prn_meds') {
+      $('#prn_form_container').show();
+      updatePetCountsDisplay(null, selectedAppointmentIds.length);
+      loadStaffSignOff();
+      $.ajax({
+        url: '{{ route("boarding-process-log-get-checkin-data") }}',
+        method: 'POST',
+        data: { _token: '{{ csrf_token() }}', appointment_ids: getSelectedRequestAppointmentIds() },
+        success: function(response) {
+          const checkinData = response.success && response.data ? response.data : null;
+          renderPrnForm(checkinData);
+        },
+        error: function() {
+          renderPrnForm(null);
+        }
+      });
+      return;
+    }
+    if (currentProcessItem === 'report_prn') {
+      $('#prn_form_container').show();
+      updatePetCountsDisplay(null, selectedAppointmentIds.length);
+      renderReportPrnForm();
       return;
     }
     if (currentProcessItem === 'end_of_day') {
@@ -870,7 +1079,7 @@
       method: 'POST',
       data: {
         _token: '{{ csrf_token() }}',
-        appointment_ids: selectedAppointmentIds
+        appointment_ids: getSelectedRequestAppointmentIds()
       },
       success: function(response) {
         if (response.success && response.data) {
@@ -909,89 +1118,160 @@
 
   function renderCheckPetForm() {
     const bodyParts = [
-      'Nose', 'Ears', 'Eyes', 'Mouth', 'Body/Coat', 'Paws/Feet', 'Abdomen', 'Digestive', 'Diarrhea'
+      { key: 'nose', label: 'Nose' },
+      { key: 'eyes', label: 'Eyes' },
+      { key: 'ears', label: 'Ears' },
+      { key: 'mouth', label: 'Mouth' },
+      { key: 'body_coat', label: 'Skin / Coat' },
+      { key: 'paws_feet', label: 'Feet' },
+      { key: 'abdomen', label: 'Abdomen' },
+      { key: 'digestive', label: 'Digestive' },
+      { key: 'diarrhea', label: 'Diarrhea' }
     ];
-    
-    // Get saved check data
+
     const currentData = workflowData[currentProcessItem] || {};
     const savedCheckData = currentData.check_data || {};
-    
-    // Build table header
-    let headerHtml = '<tr><th style="min-width: 200px;">Pet Name</th><th style="min-width: 200px;">Customer</th>';
-    bodyParts.forEach(part => {
-      headerHtml += `<th style="text-align: center; min-width: 90px;">${part}</th>`;
+    const savedFleaTickData = currentData.flea_tick_data || {};
+    const allOkKeys = ['nose', 'eyes', 'ears', 'mouth', 'body_coat', 'paws_feet', 'abdomen', 'digestive', 'diarrhea'];
+
+    const sortedAppointmentIds = [...selectedAppointmentIds].sort(function(a, b) {
+      const petA = appointmentToPetMap[a] || appointmentToPetMap[String(a)] || {};
+      const petB = appointmentToPetMap[b] || appointmentToPetMap[String(b)] || {};
+      const nameA = String(petA.pet_name || '').trim();
+      const nameB = String(petB.pet_name || '').trim();
+      const byName = nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
+      if (byName !== 0) {
+        return byName;
+      }
+
+      return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
     });
-    headerHtml += '</tr>';
-    $('#check_pet_thead').html(headerHtml);
-    
-    // Build table body
+
     let bodyHtml = '';
-    selectedAppointmentIds.forEach(appointmentId => {
+    sortedAppointmentIds.forEach(appointmentId => {
       const pet = appointmentToPetMap[appointmentId];
       if (!pet) return;
-      
-      const petAvatarUrl = pet.pet_img 
-        ? '{{ asset("storage/pets/") }}/' + pet.pet_img 
-        : '{{ asset("images/no_image.jpg") }}';
-      
-      const customerAvatarUrl = pet.customer_avatar 
-        ? '{{ asset("storage/profiles/") }}/' + pet.customer_avatar 
-        : '{{ asset("images/default-user-avatar.png") }}';
-      
+
+      const petNameAttr = (pet.pet_name || '').toLowerCase().replace(/"/g, '&quot;');
+      const customerNameAttr = (pet.customer_name || '').toLowerCase().replace(/"/g, '&quot;');
+
+      const petAvatarUrl = pet.pet_img ? '{{ asset("storage/pets/") }}/' + pet.pet_img : '{{ asset("images/no_image.jpg") }}';
       const savedPetData = savedCheckData[appointmentId] || {};
-      
-      bodyHtml += `<tr class="hover:bg-base-200" data-appointment-id="${appointmentId}">`;
-      
-      // Pet Name column
-      bodyHtml += `
-        <td>
-          <div class="flex items-center space-x-3">
-            <img src="${petAvatarUrl}" alt="Pet Image" class="mask mask-squircle bg-base-200 size-10" />
-            <span>${pet.pet_name || 'N/A'}</span>
-          </div>
-        </td>
-      `;
-      
-      // Customer column
-      bodyHtml += `
-        <td>
-          <div class="flex items-center space-x-3">
-            <img src="${customerAvatarUrl}" alt="Customer Avatar" class="mask mask-squircle bg-base-200 size-10" />
-            <span>${pet.customer_name || 'N/A'}</span>
-          </div>
-        </td>
-      `;
-      
-      // Body parts columns
+      const fleaTickChecked = isTruthyBoardingValue(savedFleaTickData[appointmentId]);
+      const hasConcern = bodyParts.some(part => ((savedPetData[part.key] || {}).status || '') === 'issue');
+      const allOkChecked = allOkKeys.every(key => ((savedPetData[key] || {}).status || '') === 'okay');
+      const badgeState = hasConcern ? 'concern' : (allOkChecked ? 'health' : 'incomplete');
+
+      bodyHtml += `<details class="collapse collapse-arrow bg-base-100 border border-base-300 rounded-box" data-appointment-id="${appointmentId}" data-pet-name="${petNameAttr}" data-customer-name="${customerNameAttr}" ${hasConcern ? '' : 'open'}>`;
+      bodyHtml += `<summary class="collapse-title px-4 py-3 pr-14"><div class="flex items-center gap-3"><img src="${petAvatarUrl}" alt="Pet Image" class="mask mask-squircle bg-base-200 size-10" /><div><p class="font-medium leading-tight">${pet.pet_name || 'N/A'}</p><p class="text-xs text-base-content/70">${pet.customer_name || 'N/A'}</p></div>${badgeState === 'incomplete' ? '' : `<span class="badge check-pet-status-badge ${badgeState === 'concern' ? 'badge-error badge-soft' : 'badge-success badge-soft'}" data-appointment-id="${appointmentId}">${badgeState === 'concern' ? 'Concern' : 'Health'}</span>`}</div></summary>`;
+      bodyHtml += `<div class="collapse-content px-4 pb-4">`;
+      bodyHtml += `<div class="flex flex-wrap items-center justify-between gap-3 mb-4 border-b border-base-300 pb-3">`;
+      bodyHtml += `<label class="label cursor-pointer gap-2 py-0 min-h-0"><input class="checkbox checkbox-sm check-pet-all-ok" type="checkbox" data-appointment-id="${appointmentId}" ${allOkChecked ? 'checked' : ''} /><span class="label-text font-medium text-sm">All OK</span></label>`;
+      bodyHtml += `<label class="label cursor-pointer gap-2 py-0 min-h-0"><input class="checkbox checkbox-sm flea-tick-checkbox" type="checkbox" data-appointment-id="${appointmentId}" ${fleaTickChecked ? 'checked' : ''} /><span class="label-text text-sm">Fleas/Ticks Detected</span></label>`;
+      bodyHtml += `</div>`;
+
       bodyParts.forEach(part => {
-        const partKey = part.toLowerCase().replace(/\s+/g, '_');
-        const fieldId = `check_${appointmentId}_${partKey}`;
-        const savedPartData = savedPetData[partKey] || {};
+        const fieldId = `check_${appointmentId}_${part.key}`;
+        const savedPartData = savedPetData[part.key] || {};
         const savedStatus = savedPartData.status || '';
-        
-        bodyHtml += `
-          <td style="text-align: center;">
-            <div class="flex items-center justify-center gap-1">
-              <label class="label cursor-pointer gap-1 py-0 min-h-0">
-                <input type="radio" name="${fieldId}" value="okay" class="radio radio-xs radio-primary" ${savedStatus === 'okay' ? 'checked' : ''} />
-                <span class="label-text text-[10px]">Okay</span>
-              </label>
-              <label class="label cursor-pointer gap-1 py-0 min-h-0">
-                <input type="radio" name="${fieldId}" value="issue" class="radio radio-xs radio-error" ${savedStatus === 'issue' ? 'checked' : ''} />
-                <span class="label-text text-[10px]">Issue</span>
-              </label>
-            </div>
-          </td>
-        `;
+        const savedNote = (savedPartData.note || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const showNote = savedStatus === 'issue';
+
+        bodyHtml += `<div class="py-3 border-b border-base-200 last:border-b-0">`;
+        bodyHtml += `<div class="grid grid-cols-1 md:grid-cols-[140px_1fr] gap-2 md:gap-4 items-start">`;
+        bodyHtml += `<p class="text-sm font-medium">${part.label}</p>`;
+        bodyHtml += `<div><div class="flex flex-wrap items-center gap-4">`;
+        bodyHtml += `<label class="label cursor-pointer gap-2 py-0 min-h-0"><input type="radio" name="${fieldId}" value="okay" class="radio radio-sm radio-primary check-part-radio" data-appointment-id="${appointmentId}" data-part-key="${part.key}" ${savedStatus === 'okay' ? 'checked' : ''} /><span class="label-text text-sm">OK</span></label>`;
+        bodyHtml += `<label class="label cursor-pointer gap-2 py-0 min-h-0"><input type="radio" name="${fieldId}" value="issue" class="radio radio-sm radio-error check-part-radio" data-appointment-id="${appointmentId}" data-part-key="${part.key}" ${savedStatus === 'issue' ? 'checked' : ''} /><span class="label-text text-sm">Concern</span></label>`;
+        bodyHtml += `</div>`;
+        bodyHtml += `<div class="mt-2 concern-note-wrap ${showNote ? '' : 'hidden'}" data-appointment-id="${appointmentId}" data-part-key="${part.key}">`;
+        bodyHtml += `<textarea id="concern_note_${appointmentId}_${part.key}" class="textarea textarea-bordered textarea-sm w-full" rows="2" placeholder="Concern notes...">${savedNote}</textarea>`;
+        bodyHtml += `</div></div></div></div>`;
       });
-      
-      bodyHtml += '</tr>';
+
+      bodyHtml += `</div></details>`;
     });
-    
-    $('#check_pet_tbody').html(bodyHtml);
+
+    $('#check_pet_accordion').html(bodyHtml || '<div class="text-center p-4 text-base-content/70">No pets in this step.</div>');
+
+    function refreshCheckPetStatusBadge(appointmentId) {
+      const hasIssuePart = allOkKeys.some(function(key) {
+        const fieldName = `check_${appointmentId}_${key}`;
+        return $(`input[name="${fieldName}"]:checked`).val() === 'issue';
+      });
+      const hasConcern = hasIssuePart;
+      const allOkay = allOkKeys.every(function(key) {
+        const fieldName = `check_${appointmentId}_${key}`;
+        return $(`input[name="${fieldName}"]:checked`).val() === 'okay';
+      });
+      const badgeState = hasConcern ? 'concern' : (allOkay ? 'health' : 'incomplete');
+      const $badge = $(`.check-pet-status-badge[data-appointment-id="${appointmentId}"]`);
+
+      if (!$badge.length && badgeState !== 'incomplete') {
+        const $summaryContent = $(`details[data-appointment-id="${appointmentId}"] summary .flex.items-center.gap-3`);
+        if ($summaryContent.length) {
+          $summaryContent.append(`<span class="badge check-pet-status-badge ${badgeState === 'concern' ? 'badge-error badge-soft' : 'badge-success badge-soft'}" data-appointment-id="${appointmentId}">${badgeState === 'concern' ? 'Concern' : 'Health'}</span>`);
+        }
+        return;
+      }
+
+      if (badgeState === 'incomplete') {
+        $badge.remove();
+        return;
+      }
+
+      $badge
+        .removeClass('badge-error badge-success')
+        .addClass(hasConcern ? 'badge-error' : 'badge-success')
+        .text(hasConcern ? 'Concern' : 'Health');
+    }
+
+    $(document).off('change.checkPetAllOk').on('change.checkPetAllOk', '.check-pet-all-ok', function() {
+      const appointmentId = $(this).data('appointment-id');
+      const shouldMarkOk = $(this).is(':checked');
+
+      allOkKeys.forEach(function(key) {
+        const fieldName = `check_${appointmentId}_${key}`;
+        $(`input[name="${fieldName}"]`).prop('checked', false);
+        if (shouldMarkOk) {
+          $(`input[name="${fieldName}"][value="okay"]`).prop('checked', true);
+        }
+        const $noteWrap = $(`.concern-note-wrap[data-appointment-id="${appointmentId}"][data-part-key="${key}"]`);
+        $noteWrap.addClass('hidden');
+        $noteWrap.find('textarea').val('');
+      });
+      refreshCheckPetStatusBadge(appointmentId);
+    });
+
+    $(document).off('change.checkPetRadio').on('change.checkPetRadio', '.check-part-radio', function() {
+      const appointmentId = $(this).data('appointment-id');
+      const partKey = $(this).data('part-key');
+      const selectedValue = $(this).val();
+      const $noteWrap = $(`.concern-note-wrap[data-appointment-id="${appointmentId}"][data-part-key="${partKey}"]`);
+
+      if (selectedValue === 'issue' && $(this).is(':checked')) {
+        $noteWrap.removeClass('hidden');
+      } else {
+        $noteWrap.addClass('hidden');
+        $noteWrap.find('textarea').val('');
+      }
+
+      const allOkay = allOkKeys.every(function(key) {
+        const fieldName = `check_${appointmentId}_${key}`;
+        return $(`input[name="${fieldName}"]:checked`).val() === 'okay';
+      });
+      $(`.check-pet-all-ok[data-appointment-id="${appointmentId}"]`).prop('checked', allOkay);
+      refreshCheckPetStatusBadge(appointmentId);
+    });
+
+    $(document).off('change.checkPetFleaTick').on('change.checkPetFleaTick', '.flea-tick-checkbox', function() {
+      refreshCheckPetStatusBadge($(this).data('appointment-id'));
+    });
   }
 
   function renderTreatmentPlanForm() {
+    ensureCheckinRestMetaLoaded();
+
     // Get saved treatment plan data
     const currentData = workflowData[currentProcessItem] || {};
     const savedTreatmentData = currentData.treatment_data || {};
@@ -1007,6 +1287,7 @@
       'eyes': 'Eyes',
       'mouth': 'Mouth',
       'body_coat': 'Body/Coat',
+      'flea_tick': 'Flea/Tick',
       'paws_feet': 'Paws/Feet',
       'abdomen': 'Abdomen',
       'digestive': 'Digestive',
@@ -1052,7 +1333,7 @@
     });
     
     // Build table header
-    const headerHtml = '<tr><th style="min-width: 200px;">Pet Name</th><th style="min-width: 200px;">Customer</th><th style="min-width: 200px;">Issue</th><th style="min-width: 200px;">Option</th><th style="min-width: 200px;">Treatment</th><th style="min-width: 300px;">Detail</th><th style="min-width: 110px;">Assign Rest</th></tr>';
+    const headerHtml = '<tr><th style="min-width: 200px;">Pet Name</th><th style="min-width: 200px;">Customer</th><th style="min-width: 200px;">Issue</th><th style="min-width: 200px;">Option</th><th style="min-width: 200px;">Treatment</th><th style="min-width: 300px;">Detail</th><th style="min-width: 110px;">Assign Rest</th><th style="min-width: 300px;">Rest Detail</th></tr>';
     $('#treatment_plan_thead').html(headerHtml);
     
     // Build table body
@@ -1096,9 +1377,14 @@
         const savedOption = savedPetData.option || '';
         const savedDetail = savedPetData.detail || '';
         const savedAssignRest = savedPetData.assign_rest === true || savedPetData.assign_rest === 'true' || savedPetData.assign_rest === 1 || savedPetData.assign_rest === '1';
-        const savedAdditionalOption = Array.isArray(savedPetData.additional_options)
-          ? (savedPetData.additional_options[0] || '')
-          : (savedPetData.additional_option || savedPetData.additional_options || '');
+        const savedRestDetail = savedPetData.rest_detail || '';
+        const checkinRestData = checkinRestMetaByAppointmentId[String(appointmentId)] || {};
+        const isRestAssignedFromCheckin = checkinRestData.is_assigned === true;
+        const effectiveAssignRest = isRestAssignedFromCheckin ? true : savedAssignRest;
+        const effectiveRestDetail = isRestAssignedFromCheckin ? (savedRestDetail || checkinRestData.rest_note || '') : savedRestDetail;
+        const savedAdditionalOptions = Array.isArray(savedPetData.additional_options)
+          ? savedPetData.additional_options
+          : (savedPetData.additional_option ? [savedPetData.additional_option] : []);
         
         bodyHtml += `<tr class="hover:bg-base-200" data-appointment-id="${appointmentId}">`;
         
@@ -1139,21 +1425,20 @@
               </label>
               <label class="label cursor-pointer gap-2">
                 <input type="radio" name="treatment_option_${appointmentId}" value="vet-watch" class="radio radio-sm radio-primary" ${savedOption === 'vet-watch' ? 'checked' : ''} />
-                <span class="label-text text-sm">Vet watch</span>
+                <span class="label-text text-sm">Vet</span>
               </label>
             </div>
           </td>
         `;
 
         const additionalOptionsHtml = treatmentMultiOptions.map(option => {
-          const selected = savedAdditionalOption === option ? 'selected' : '';
+          const selected = savedAdditionalOptions.includes(option) ? 'selected' : '';
           return `<option value="${option}" ${selected}>${option}</option>`;
         }).join('');
 
         bodyHtml += `
           <td>
-            <select id="treatment_multi_${appointmentId}" class="select select-bordered select-sm w-full treatment-plan-select">
-              <option value=""></option>
+            <select id="treatment_multi_${appointmentId}" class="select select-bordered select-sm w-full treatment-plan-select" multiple>
               ${additionalOptionsHtml}
             </select>
           </td>
@@ -1170,10 +1455,17 @@
         bodyHtml += `
           <td style="text-align: center;">
             <label class="label cursor-pointer justify-center py-0">
-              <input type="checkbox" id="assign_rest_${appointmentId}" class="checkbox checkbox-sm" ${savedAssignRest ? 'checked' : ''} />
+              <input type="checkbox" id="assign_rest_${appointmentId}" class="checkbox checkbox-sm" ${effectiveAssignRest ? 'checked' : ''} ${isRestAssignedFromCheckin ? 'disabled' : ''} />
             </label>
           </td>
         `;
+        
+        bodyHtml += `
+          <td>
+            <textarea id="rest_detail_${appointmentId}" class="textarea textarea-bordered textarea-sm w-full" rows="2" style="min-height: 2rem;" placeholder="Enter rest details..." ${isRestAssignedFromCheckin ? 'disabled' : ''}>${effectiveRestDetail ? effectiveRestDetail.replace(/</g, '&lt;').replace(/>/g, '&gt;') : ''}</textarea>
+          </td>
+        `;
+
         
         bodyHtml += '</tr>';
       });
@@ -1182,18 +1474,19 @@
     $('#treatment_plan_tbody').html(bodyHtml);
 
     $('.treatment-plan-select').select2({
-      placeholder: 'Select the treatment',
+      placeholder: 'Select treatments',
       allowClear: true,
+      multiple: true,
       width: '100%'
     });
-    // Restore saved Select2 values (Select2 with allowClear doesn't honour 'selected' attr after init)
+    // Restore saved Select2 values (Select2 doesn't honour 'selected' attr after init)
     petsWithIssues.forEach(function(appointmentId) {
       const savedPetDataRestore = savedTreatmentData[appointmentId] || {};
-      const savedAdditionalOptionRestore = Array.isArray(savedPetDataRestore.additional_options)
-        ? (savedPetDataRestore.additional_options[0] || '')
-        : (savedPetDataRestore.additional_option || savedPetDataRestore.additional_options || '');
-      if (savedAdditionalOptionRestore) {
-        $('#treatment_multi_' + appointmentId).val(savedAdditionalOptionRestore).trigger('change');
+      const savedAdditionalOptionsRestore = Array.isArray(savedPetDataRestore.additional_options)
+        ? savedPetDataRestore.additional_options
+        : (savedPetDataRestore.additional_option ? [savedPetDataRestore.additional_option] : []);
+      if (savedAdditionalOptionsRestore.length) {
+        $('#treatment_multi_' + appointmentId).val(savedAdditionalOptionsRestore).trigger('change');
       }
     });
     return true;
@@ -1219,6 +1512,7 @@
       'eyes': 'Eyes',
       'mouth': 'Mouth',
       'body_coat': 'Body/Coat',
+      'flea_tick': 'Flea/Tick',
       'paws_feet': 'Paws/Feet',
       'abdomen': 'Abdomen',
       'digestive': 'Digestive',
@@ -1268,7 +1562,7 @@
         const detail = petTreatmentData.detail || '';
         
         // Get option display text
-        const optionText = option === 'in-house' ? 'In-house' : option === 'vet-watch' ? 'Vet watch' : '-';
+        const optionText = option === 'in-house' ? 'In-house' : option === 'vet-watch' ? 'Vet' : '-';
         
         // Check if this treatment is completed (handle both true/false and undefined)
         const isCompleted = savedTreatmentListData[appointmentId] === true || savedTreatmentListData[appointmentId] === 'true';
@@ -1337,9 +1631,40 @@
 
   const bodyPartsMapTLR = {
     'nose': 'Nose', 'ears': 'Ears', 'eyes': 'Eyes', 'mouth': 'Mouth',
-    'body_coat': 'Body/Coat', 'paws_feet': 'Paws/Feet', 'abdomen': 'Abdomen',
+    'body_coat': 'Body/Coat', 'flea_tick': 'Flea/Tick', 'paws_feet': 'Paws/Feet', 'abdomen': 'Abdomen',
     'digestive': 'Digestive', 'diarrhea': 'Diarrhea'
   };
+
+  function getTreatmentPlanSelectionValues(petTreatmentData) {
+    if (!petTreatmentData || typeof petTreatmentData !== 'object') {
+      return [];
+    }
+
+    if (Array.isArray(petTreatmentData.additional_options)) {
+      return petTreatmentData.additional_options.filter(Boolean);
+    }
+
+    if (Array.isArray(petTreatmentData.selected_treatments)) {
+      return petTreatmentData.selected_treatments.filter(Boolean);
+    }
+
+    if (Array.isArray(petTreatmentData.selected_treatment)) {
+      return petTreatmentData.selected_treatment.filter(Boolean);
+    }
+
+    if (Array.isArray(petTreatmentData.treatment)) {
+      return petTreatmentData.treatment.filter(Boolean);
+    }
+
+    const singleValue =
+      petTreatmentData.additional_option ||
+      petTreatmentData.selected_treatment ||
+      petTreatmentData.selected_treatments ||
+      petTreatmentData.treatment ||
+      '';
+
+    return singleValue ? [singleValue] : [];
+  }
 
   function getTreatmentListBasePetIds() {
     const treatmentPlanData = workflowData['treatment_plan'] || {};
@@ -1367,8 +1692,8 @@
     let alwaysLunchIds = [];
     if (checkinData && Array.isArray(checkinData)) {
       checkinData.forEach(function(item) {
-        const aid = parseInt(item.appointment_id, 10);
-        if (isNaN(aid)) return;
+        const aid = getWorkflowItemId(item);
+        if (aid === null) return;
         if ((item.lunch_dry === true || item.lunch_dry === 'true') || (item.lunch_wet === true || item.lunch_wet === 'true')) {
           alwaysLunchIds.push(aid);
         }
@@ -1391,7 +1716,9 @@
     const prevStepProcessTime = checkPetDataForTime.process_time || checkPetDataForTime.processTime || treatmentPlanDataForTime.process_time || treatmentPlanDataForTime.processTime || '';
     const reportedDisplay = prevStepProcessTime || '-';
     const yesterdayIds = (yesterdayNextDayPetIds || []).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    const reportsAmIdsRender = ((workflowData['reports_am'] || {}).selected_pet_ids || []).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+    const reportsAmData = workflowData['reports_am'] || {};
+    const feedingAmData = workflowData['feeding_am'] || {};
+    const reportsAmIdsRender = ((reportsAmData.selected_pet_ids || []).map(id => parseInt(id, 10))).filter(id => !isNaN(id));
 
     $('#dne_list_search_bar').hide();
     $('#rest_nose_to_tail_inline').hide();
@@ -1417,7 +1744,8 @@
             if (petCheckData[partKey].status === 'issue') issues.push(bodyPartsMapTLR[partKey] || partKey);
           });
         }
-        const issuesText = inTreatmentPlan ? (issues.join(', ') || 'No issues') : (fromReportsAmOnly ? 'Do not eat AM Meals' : 'Carried from previous day');
+        const reportStatus = getReportWorkflowStatus(reportsAmData, feedingAmData, appointmentId);
+        const issuesText = inTreatmentPlan ? (issues.join(', ') || 'No issues') : (fromReportsAmOnly ? getFeedingConcernLabel(reportStatus, 'AM') : 'Carried from previous day');
         const petTreatmentData = treatmentPlanTreatmentData[appointmentId] || {};
         const treatmentDetail = isFromYesterday ? '-' : (petTreatmentData.detail || '-');
         bodyHtml += `<tr class="hover:bg-base-200" data-appointment-id="${appointmentId}">`;
@@ -1436,12 +1764,15 @@
     const treatmentListBasePetIds = getTreatmentListBasePetIds();
     const treatmentPlanData = workflowData['treatment_plan'] || {};
     const treatmentPlanPetIds = treatmentPlanData.selected_pet_ids || [];
+    const treatmentPlanTreatmentData = treatmentPlanData.treatment_data || {};
     const checkPetData = workflowData['check_pet'] || {};
     const checkPetCheckData = checkPetData.check_data || {};
     const currentData = workflowData['treatments_tlr'] || {};
     const savedResults = currentData.results || {};
     const yesterdayIds = (yesterdayNextDayPetIds || []).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    const reportsAmIdsRender = ((workflowData['reports_am'] || {}).selected_pet_ids || []).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+    const reportsAmData = workflowData['reports_am'] || {};
+    const feedingAmData = workflowData['feeding_am'] || {};
+    const reportsAmIdsRender = ((reportsAmData.selected_pet_ids || []).map(id => parseInt(id, 10))).filter(id => !isNaN(id));
 
     $('#dne_list_search_bar').hide();
     $('#rest_nose_to_tail_inline').hide();
@@ -1457,7 +1788,7 @@
       return false;
     }
     $('#treatment_lunch_rest_form_container').show();
-    $('#treatment_lunch_rest_thead').html('<tr><th style="min-width: 200px;">Pet</th><th style="min-width: 200px;">Customer</th><th style="min-width: 200px;">Issue</th><th style="min-width: 220px;">Result</th><th style="min-width: 300px;">Detail</th></tr>');
+    $('#treatment_lunch_rest_thead').html('<tr><th style="min-width: 200px;">Pet</th><th style="min-width: 200px;">Customer</th><th style="min-width: 200px;">Issue</th><th style="min-width: 220px;">Treatment</th><th style="min-width: 280px;">Treatment Plan Detail</th><th style="min-width: 220px;">Result</th></tr>');
     let bodyHtml = '';
     treatmentListBasePetIds.forEach(appointmentId => {
         const pet = appointmentToPetMap[appointmentId];
@@ -1476,23 +1807,40 @@
             if (petCheckData[partKey].status === 'issue') issues.push(bodyPartsMapTLR[partKey] || partKey);
           });
         }
-        const issuesText = inTreatmentPlan ? (issues.join(', ') || 'No issues') : (fromReportsAmOnly ? 'Do not eat AM Meals' : 'Carried from previous day');
+        const reportStatus = getReportWorkflowStatus(reportsAmData, feedingAmData, appointmentId);
+        const issuesText = inTreatmentPlan ? (issues.join(', ') || 'No issues') : (fromReportsAmOnly ? getFeedingConcernLabel(reportStatus, 'AM') : 'Carried from previous day');
+        const petTreatmentData = treatmentPlanTreatmentData[appointmentId] || {};
+        const treatmentSelections = getTreatmentPlanSelectionValues(petTreatmentData);
+        const treatmentSelectionText = treatmentSelections.length > 0 ? treatmentSelections.join(', ') : '-';
+        const treatmentPlanDetail = (petTreatmentData.detail || petTreatmentData.details || '').trim() || '-';
         const saved = savedResults[appointmentId] || {};
         const resultVal = saved.result || '';
-        const detailVal = saved.detail || '';
+        const escalateDetailVal = saved.detail || '';
         bodyHtml += `<tr class="hover:bg-base-200" data-appointment-id="${appointmentId}">`;
         bodyHtml += `<td><div class="flex items-center space-x-3"><img src="${petAvatarUrl}" alt="Pet" class="mask mask-squircle bg-base-200 size-10" /><span>${pet.pet_name || 'N/A'}</span></div></td>`;
         bodyHtml += `<td><div class="flex items-center space-x-3"><img src="${customerAvatarUrl}" alt="Customer" class="mask mask-squircle bg-base-200 size-10" /><span>${pet.customer_name || 'N/A'}</span></div></td>`;
         bodyHtml += `<td><span class="text-sm">${issuesText}</span></td>`;
+        bodyHtml += `<td><span class="text-sm">${treatmentSelectionText !== '-' ? treatmentSelectionText.replace(/</g, '&lt;').replace(/>/g, '&gt;') : '-'}</span></td>`;
+        bodyHtml += `<td><span class="text-sm">${treatmentPlanDetail !== '-' ? treatmentPlanDetail.replace(/</g, '&lt;').replace(/>/g, '&gt;') : '-'}</span></td>`;
         bodyHtml += `<td><div class="flex flex-wrap gap-2 items-center">`;
         bodyHtml += `<label class="label cursor-pointer gap-1 py-0 min-h-0"><input type="radio" name="result_tlr_${appointmentId}" value="continue" class="radio radio-xs radio-primary" ${resultVal === 'continue' ? 'checked' : ''} /><span class="label-text text-xs">Continue</span></label>`;
         bodyHtml += `<label class="label cursor-pointer gap-1 py-0 min-h-0"><input type="radio" name="result_tlr_${appointmentId}" value="resolved" class="radio radio-xs radio-primary" ${resultVal === 'resolved' ? 'checked' : ''} /><span class="label-text text-xs">Resolved</span></label>`;
         bodyHtml += `<label class="label cursor-pointer gap-1 py-0 min-h-0"><input type="radio" name="result_tlr_${appointmentId}" value="escalate" class="radio radio-xs radio-primary" ${resultVal === 'escalate' ? 'checked' : ''} /><span class="label-text text-xs">Escalate</span></label>`;
-        bodyHtml += `</div></td>`;
-        bodyHtml += `<td><textarea class="textarea textarea-bordered textarea-sm w-full detail-tlr" rows="3" style="height: 3.5rem;" data-appointment-id="${appointmentId}" placeholder="Detail...">${(detailVal || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea></td>`;
+        bodyHtml += `</div><div class="escalate-detail-wrap mt-2 ${resultVal === 'escalate' ? '' : 'hidden'}" data-appointment-id="${appointmentId}"><textarea class="textarea textarea-bordered textarea-sm w-full escalate-detail-tlr" rows="2" style="min-height: 2rem;" data-appointment-id="${appointmentId}" placeholder="Escalate detail...">${(escalateDetailVal || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea></div></td>`;
         bodyHtml += '</tr>';
     });
     $('#treatment_lunch_rest_tbody').html(bodyHtml);
+    $('input[type="radio"][name^="result_tlr_"]').off('change').on('change', function() {
+      const match = (this.name || '').match(/^result_tlr_(.+)$/);
+      if (!match) return;
+      const appointmentId = match[1];
+      const isEscalate = $(this).val() === 'escalate' && $(this).is(':checked');
+      const $wrap = $(`.escalate-detail-wrap[data-appointment-id="${appointmentId}"]`);
+      $wrap.toggleClass('hidden', !isEscalate);
+      if (!isEscalate) {
+        $wrap.find('.escalate-detail-tlr').val('');
+      }
+    });
     return true;
   }
 
@@ -1512,9 +1860,14 @@
     const prevStepProcessTime = checkPetDataForTime.process_time || checkPetDataForTime.processTime || treatmentPlanDataForTime.process_time || treatmentPlanDataForTime.processTime || '';
     const reportedDisplay = prevStepProcessTime || '-';
     const currentData = workflowData['next_day_treatment_list_tlr'] || {};
-    const savedVetVisit = currentData.vet_visit || {};
     const savedSelected = currentData.selected_pet_ids || [];
-    const savedResults = currentData.results || {};
+    const checkPetData = workflowData['check_pet'] || {};
+    const checkPetCheckData = checkPetData.check_data || {};
+    const treatmentPlanTreatmentData = treatmentPlanData.treatment_data || {};
+    const yesterdayIds = (yesterdayNextDayPetIds || []).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+    const reportsAmData = workflowData['reports_am'] || {};
+    const feedingAmData = workflowData['feeding_am'] || {};
+    const reportsAmIdsRender = ((reportsAmData.selected_pet_ids || []).map(id => parseInt(id, 10))).filter(id => !isNaN(id));
 
     $('#dne_list_search_bar').hide();
     $('#rest_nose_to_tail_inline').hide();
@@ -1530,22 +1883,41 @@
       return false;
     }
     $('#treatment_lunch_rest_form_container').show();
-    $('#treatment_lunch_rest_thead').html('<tr><th style="width: 50px;"><input class="checkbox checkbox-sm" id="select_all_next_day_tlr" type="checkbox" /></th><th style="min-width: 200px;">Pet</th><th style="min-width: 200px;">Customer</th><th style="min-width: 180px;">Reported</th><th style="min-width: 120px;">Vet Visit</th></tr>');
+    $('#treatment_lunch_rest_thead').html('<tr><th style="width: 50px;"><input class="checkbox checkbox-sm" id="select_all_next_day_tlr" type="checkbox" /></th><th style="min-width: 200px;">Pet</th><th style="min-width: 200px;">Customer</th><th style="min-width: 180px;">Reported</th><th style="min-width: 200px;">Issue</th><th style="min-width: 220px;">Treatment</th><th style="min-width: 260px;">Notes</th></tr>');
     let bodyHtml = '';
     nextDayPetIds.forEach(appointmentId => {
         const pet = appointmentToPetMap[appointmentId];
         if (!pet) return;
         const petAvatarUrl = pet.pet_img ? '{{ asset("storage/pets/") }}/' + pet.pet_img : '{{ asset("images/no_image.jpg") }}';
         const customerAvatarUrl = pet.customer_avatar ? '{{ asset("storage/profiles/") }}/' + pet.customer_avatar : '{{ asset("images/default-user-avatar.png") }}';
-        const vetVisitChecked = savedVetVisit[appointmentId] === true || savedVetVisit[appointmentId] === 'true';
+        const resultData = treatmentsTlrResults[appointmentId] || {};
+        const resultVal = resultData.result || '';
+        const aid = parseInt(appointmentId, 10);
+        const inTreatmentPlan = treatmentPlanPetIds.indexOf(aid) !== -1 || treatmentPlanPetIds.indexOf(String(appointmentId)) !== -1;
+        const fromYesterdayList = !inTreatmentPlan && yesterdayIds.indexOf(aid) !== -1;
+        const fromReportsAmOnly = !inTreatmentPlan && reportsAmIdsRender.indexOf(aid) !== -1 && !fromYesterdayList;
+        const petCheckData = checkPetCheckData[appointmentId] || {};
+        const issues = [];
+        if (inTreatmentPlan) {
+          Object.keys(petCheckData).forEach(partKey => {
+            if (petCheckData[partKey].status === 'issue') issues.push(bodyPartsMapTLR[partKey] || partKey);
+          });
+        }
+        const reportStatus = getReportWorkflowStatus(reportsAmData, feedingAmData, appointmentId);
+        const issuesText = inTreatmentPlan ? (issues.join(', ') || 'No issues') : (fromReportsAmOnly ? getFeedingConcernLabel(reportStatus, 'AM') : 'Carried from previous day');
+        const petTreatmentData = treatmentPlanTreatmentData[appointmentId] || {};
+        const treatmentSelections = getTreatmentPlanSelectionValues(petTreatmentData);
+        const treatmentSelectionText = treatmentSelections.length > 0 ? treatmentSelections.join(', ') : '-';
+        const notesText = resultVal === 'continue' ? 'Continue monitoring' : ((resultData.detail || '').trim() || '—');
         const rowChecked = savedSelected.length ? savedSelected.includes(parseInt(appointmentId)) : false;
         bodyHtml += `<tr class="hover:bg-base-200" data-appointment-id="${appointmentId}">`;
         bodyHtml += `<td><input class="checkbox checkbox-sm next-day-row-tlr" type="checkbox" data-appointment-id="${appointmentId}" ${rowChecked ? 'checked' : ''} /></td>`;
         bodyHtml += `<td><div class="flex items-center space-x-3"><img src="${petAvatarUrl}" alt="Pet" class="mask mask-squircle bg-base-200 size-10" /><span>${pet.pet_name || 'N/A'}</span></div></td>`;
         bodyHtml += `<td><div class="flex items-center space-x-3"><img src="${customerAvatarUrl}" alt="Customer" class="mask mask-squircle bg-base-200 size-10" /><span>${pet.customer_name || 'N/A'}</span></div></td>`;
         bodyHtml += `<td><span class="text-sm text-base-content/80">${reportedDisplay}</span></td>`;
-        // removed Result column
-        bodyHtml += `<td><input class="checkbox checkbox-sm vet-visit-tlr" type="checkbox" data-appointment-id="${appointmentId}" ${vetVisitChecked ? 'checked' : ''} /></td>`;
+        bodyHtml += `<td><span class="text-sm">${issuesText}</span></td>`;
+        bodyHtml += `<td><span class="text-sm">${treatmentSelectionText !== '-' ? treatmentSelectionText.replace(/</g, '&lt;').replace(/>/g, '&gt;') : '-'}</span></td>`;
+        bodyHtml += `<td><span class="text-sm">${notesText !== '—' ? notesText.replace(/</g, '&lt;').replace(/>/g, '&gt;') : '—'}</span></td>`;
         bodyHtml += '</tr>';
       });
     $('#treatment_lunch_rest_tbody').html(bodyHtml);
@@ -1560,12 +1932,17 @@
     const key = amOrPm === 'am' ? 'reports_am' : 'reports_pm';
     const stepKey = amOrPm === 'am' ? 'dne_list_am' : 'dne_list_pm';
     const reportData = workflowData[key] || {};
+      const feedingData = workflowData[getFeedingStepKey(stepKey)] || {};
     const petIds = (reportData.selected_pet_ids || []).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
     const reportIssues = reportData.issues || {};
+      const reportStatuses = reportData.statuses || {};
     const checkinMap = {};
     if (checkinData && Array.isArray(checkinData)) {
       checkinData.forEach(item => {
-        checkinMap[item.appointment_id] = item;
+        const workflowId = getWorkflowItemId(item);
+        if (workflowId !== null) {
+          checkinMap[workflowId] = item;
+        }
       });
     }
 
@@ -1586,10 +1963,10 @@
       $('#dne_list_time').text(feedingTime);
       $('#dne_list_employee').text(employeeName);
 
-      $('#treatment_lunch_rest_thead').html('<tr><th style="min-width: 200px;">Pet</th><th style="min-width: 200px;">Customer</th><th style="min-width: 160px;">Dry Food</th><th style="min-width: 160px;">Wet Food</th><th style="min-width: 200px;">Issue</th></tr>');
+      $('#treatment_lunch_rest_thead').html('<tr><th style="min-width: 200px;">Pet</th><th style="min-width: 200px;">Customer</th><th style="min-width: 160px;">Dry Food</th><th style="min-width: 160px;">Wet Food</th><th style="min-width: 140px;">Status</th><th style="min-width: 200px;">Issue/Detail</th></tr>');
       let bodyHtml = '';
       if (petIds.length === 0) {
-        bodyHtml = '<tr data-empty><td colspan="5" class="text-center p-4 text-base-content/70">No pets selected in AM Reports. Complete Reports in AM Feeding Meds first.</td></tr>';
+        bodyHtml = '<tr data-empty><td colspan="6" class="text-center p-4 text-base-content/70">No pets selected in AM Reports. Complete Reports in AM Feeding Meds first.</td></tr>';
       } else {
         petIds.forEach(appointmentId => {
           const pet = appointmentToPetMap[appointmentId];
@@ -1598,32 +1975,19 @@
           const customerAvatarUrl = pet.customer_avatar ? '{{ asset("storage/profiles/") }}/' + pet.customer_avatar : '{{ asset("images/default-user-avatar.png") }}';
           const item = checkinMap[appointmentId];
           const flows = (item && item.checkin) ? (item.checkin.flows || {}) : {};
-          const dryFood = flows.dry_food || {};
-          const wetFood = flows.wet_food || {};
-          const dryFoodDispense = [];
-          if (dryFood.dispense_am === true || dryFood.dispense_am === 'true') dryFoodDispense.push('AM');
-          if (dryFood.dispense_pm === true || dryFood.dispense_pm === 'true') dryFoodDispense.push('PM');
-          const dryFoodDispenseText = dryFoodDispense.length > 0 ? dryFoodDispense.join(' + ') : '-';
-          const dryFoodParts = [];
-          if (dryFood.brand) dryFoodParts.push(dryFood.brand);
-          if (dryFood.amount) dryFoodParts.push(dryFood.amount);
-          if (dryFoodDispenseText !== '-') dryFoodParts.push(dryFoodDispenseText);
-          const dryFoodHtml = dryFoodParts.length > 0 ? dryFoodParts.join(' ') : '-';
-          const wetFoodDispense = [];
-          if (wetFood.dispense_am === true || wetFood.dispense_am === 'true') wetFoodDispense.push('AM');
-          if (wetFood.dispense_pm === true || wetFood.dispense_pm === 'true') wetFoodDispense.push('PM');
-          const wetFoodDispenseText = wetFoodDispense.length > 0 ? wetFoodDispense.join(' + ') : '-';
-          const wetFoodParts = [];
-          if (wetFood.brand) wetFoodParts.push(wetFood.brand);
-          if (wetFood.amount) wetFoodParts.push(wetFood.amount);
-          if (wetFoodDispenseText !== '-') wetFoodParts.push(wetFoodDispenseText);
-          const wetFoodHtml = wetFoodParts.length > 0 ? wetFoodParts.join(' ') : '-';
-          const issueVal = (reportIssues[appointmentId] || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const dryFoodRows = getFoodRowsFromFlows(flows, 'dry');
+          const wetFoodRows = getFoodRowsFromFlows(flows, 'wet');
+          const dryFoodHtml = buildFoodDisplayText(dryFoodRows);
+          const wetFoodHtml = buildFoodDisplayText(wetFoodRows);
+          const statusValue = (reportStatuses[appointmentId] || reportStatuses[String(appointmentId)] || getFeedingReportStatus(feedingData, appointmentId)).toString().trim();
+          const statusLabel = getFeedingReportStatusLabel(statusValue);
+          const issueVal = (statusValue === 'partial_meal' ? getFeedingPartialMealNote(feedingData, appointmentId) : getSavedWorkflowTextValue(reportIssues, appointmentId)).replace(/</g, '&lt;').replace(/>/g, '&gt;');
           bodyHtml += `<tr class="hover:bg-base-200 dne-list-am-row" data-appointment-id="${appointmentId}" data-pet-name="${(pet.pet_name || '').toLowerCase()}" data-customer-name="${(pet.customer_name || '').toLowerCase()}">`;
           bodyHtml += `<td><div class="flex items-center space-x-3"><img src="${petAvatarUrl}" alt="Pet" class="mask mask-squircle bg-base-200 size-10" /><span>${pet.pet_name || 'N/A'}</span></div></td>`;
           bodyHtml += `<td><div class="flex items-center space-x-3"><img src="${customerAvatarUrl}" alt="Customer" class="mask mask-squircle bg-base-200 size-10" /><span>${pet.customer_name || 'N/A'}</span></div></td>`;
           bodyHtml += `<td><span class="text-sm">${dryFoodHtml}</span></td>`;
           bodyHtml += `<td><span class="text-sm">${wetFoodHtml}</span></td>`;
+          bodyHtml += `<td><span class="text-sm">${statusLabel}</span></td>`;
           bodyHtml += `<td><span class="text-sm">${issueVal || '—'}</span></td>`;
           bodyHtml += '</tr>';
         });
@@ -1652,10 +2016,10 @@
       $('#dne_list_time').text(feedingTime);
       $('#dne_list_employee').text(employeeName);
 
-      $('#treatment_lunch_rest_thead').html('<tr><th style="min-width: 200px;">Pet</th><th style="min-width: 200px;">Customer</th><th style="min-width: 160px;">Dry Food</th><th style="min-width: 160px;">Wet Food</th><th style="min-width: 200px;">Issue</th></tr>');
+      $('#treatment_lunch_rest_thead').html('<tr><th style="min-width: 200px;">Pet</th><th style="min-width: 200px;">Customer</th><th style="min-width: 160px;">Dry Food</th><th style="min-width: 160px;">Wet Food</th><th style="min-width: 140px;">Status</th><th style="min-width: 200px;">Issue/Detail</th></tr>');
       let bodyHtml = '';
       if (petIds.length === 0) {
-        bodyHtml = '<tr data-empty><td colspan="5" class="text-center p-4 text-base-content/70">No pets selected in PM Reports. Complete Reports in PM Feeding Meds first.</td></tr>';
+        bodyHtml = '<tr data-empty><td colspan="6" class="text-center p-4 text-base-content/70">No pets selected in PM Reports. Complete Reports in PM Feeding Meds first.</td></tr>';
       } else {
         petIds.forEach(appointmentId => {
           const pet = appointmentToPetMap[appointmentId];
@@ -1664,32 +2028,19 @@
           const customerAvatarUrl = pet.customer_avatar ? '{{ asset("storage/profiles/") }}/' + pet.customer_avatar : '{{ asset("images/default-user-avatar.png") }}';
           const item = checkinMap[appointmentId];
           const flows = (item && item.checkin) ? (item.checkin.flows || {}) : {};
-          const dryFood = flows.dry_food || {};
-          const wetFood = flows.wet_food || {};
-          const dryFoodDispense = [];
-          if (dryFood.dispense_am === true || dryFood.dispense_am === 'true') dryFoodDispense.push('AM');
-          if (dryFood.dispense_pm === true || dryFood.dispense_pm === 'true') dryFoodDispense.push('PM');
-          const dryFoodDispenseText = dryFoodDispense.length > 0 ? dryFoodDispense.join(' + ') : '-';
-          const dryFoodParts = [];
-          if (dryFood.brand) dryFoodParts.push(dryFood.brand);
-          if (dryFood.amount) dryFoodParts.push(dryFood.amount);
-          if (dryFoodDispenseText !== '-') dryFoodParts.push(dryFoodDispenseText);
-          const dryFoodHtml = dryFoodParts.length > 0 ? dryFoodParts.join(' ') : '-';
-          const wetFoodDispense = [];
-          if (wetFood.dispense_am === true || wetFood.dispense_am === 'true') wetFoodDispense.push('AM');
-          if (wetFood.dispense_pm === true || wetFood.dispense_pm === 'true') wetFoodDispense.push('PM');
-          const wetFoodDispenseText = wetFoodDispense.length > 0 ? wetFoodDispense.join(' + ') : '-';
-          const wetFoodParts = [];
-          if (wetFood.brand) wetFoodParts.push(wetFood.brand);
-          if (wetFood.amount) wetFoodParts.push(wetFood.amount);
-          if (wetFoodDispenseText !== '-') wetFoodParts.push(wetFoodDispenseText);
-          const wetFoodHtml = wetFoodParts.length > 0 ? wetFoodParts.join(' ') : '-';
-          const issueVal = (reportIssues[appointmentId] || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const dryFoodRows = getFoodRowsFromFlows(flows, 'dry');
+          const wetFoodRows = getFoodRowsFromFlows(flows, 'wet');
+          const dryFoodHtml = buildFoodDisplayText(dryFoodRows);
+          const wetFoodHtml = buildFoodDisplayText(wetFoodRows);
+          const statusValue = (reportStatuses[appointmentId] || reportStatuses[String(appointmentId)] || getFeedingReportStatus(feedingData, appointmentId)).toString().trim();
+          const statusLabel = getFeedingReportStatusLabel(statusValue);
+          const issueVal = (statusValue === 'partial_meal' ? getFeedingPartialMealNote(feedingData, appointmentId) : getSavedWorkflowTextValue(reportIssues, appointmentId)).replace(/</g, '&lt;').replace(/>/g, '&gt;');
           bodyHtml += `<tr class="hover:bg-base-200 dne-list-pm-row" data-appointment-id="${appointmentId}" data-pet-name="${(pet.pet_name || '').toLowerCase()}" data-customer-name="${(pet.customer_name || '').toLowerCase()}">`;
           bodyHtml += `<td><div class="flex items-center space-x-3"><img src="${petAvatarUrl}" alt="Pet" class="mask mask-squircle bg-base-200 size-10" /><span>${pet.pet_name || 'N/A'}</span></div></td>`;
           bodyHtml += `<td><div class="flex items-center space-x-3"><img src="${customerAvatarUrl}" alt="Customer" class="mask mask-squircle bg-base-200 size-10" /><span>${pet.customer_name || 'N/A'}</span></div></td>`;
           bodyHtml += `<td><span class="text-sm">${dryFoodHtml}</span></td>`;
           bodyHtml += `<td><span class="text-sm">${wetFoodHtml}</span></td>`;
+          bodyHtml += `<td><span class="text-sm">${statusLabel}</span></td>`;
           bodyHtml += `<td><span class="text-sm">${issueVal || '—'}</span></td>`;
           bodyHtml += '</tr>';
         });
@@ -1710,19 +2061,26 @@
 
   function renderLunchForm(checkinData) {
     const reportsAmData = workflowData['reports_am'] || {};
+    const feedingAmData = workflowData['feeding_am'] || {};
     const reportsAmIds = ((reportsAmData.selected_pet_ids || []).map(id => parseInt(id, 10)).filter(id => !isNaN(id)));
     const yesterdayIds = (yesterdayNextDayPetIds || []).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
     const reportsAmIssues = reportsAmData.issues || {};
     const lunchIds = getLunchStepPetIds(checkinData);
     const checkinMap = {};
     if (checkinData && Array.isArray(checkinData)) {
-      checkinData.forEach(item => { checkinMap[item.appointment_id] = item; });
+      checkinData.forEach(item => {
+        const workflowId = getWorkflowItemId(item);
+        if (workflowId !== null) {
+          checkinMap[workflowId] = item;
+        }
+      });
     }
 
     $('#dne_list_search_bar').hide();
     $('#rest_nose_to_tail_inline').hide();
     $('#empty_state_message').hide();
-    $('#treatment_lunch_rest_thead').html('<tr><th style="min-width: 180px;">Pet</th><th style="min-width: 180px;">Customer</th><th style="min-width: 200px;">Source</th><th style="min-width: 120px;">Meals (Dry or Wet)</th><th style="min-width: 80px;">Amount</th><th style="min-width: 200px;">Issue</th></tr>');
+    const savedLunchNotes = (workflowData['lunch_tlr'] || {}).notes || {};
+    $('#treatment_lunch_rest_thead').html('<tr><th style="min-width: 180px;">Pet</th><th style="min-width: 180px;">Customer</th><th style="min-width: 200px;">Source</th><th style="min-width: 120px;">Meals (Dry or Wet)</th><th style="min-width: 80px;">Amount</th><th style="min-width: 200px;">Issue</th><th style="min-width: 220px;">Notes</th></tr>');
     let bodyHtml = '';
     if (lunchIds.length === 0) {
       $('#treatment_lunch_rest_form_container').hide();
@@ -1746,32 +2104,38 @@
         const lunchDry = checkinItem && (checkinItem.lunch_dry === true || checkinItem.lunch_dry === 'true');
         const lunchWet = checkinItem && (checkinItem.lunch_wet === true || checkinItem.lunch_wet === 'true');
         const isScheduledLunch = lunchDry || lunchWet;
+        const reportsAmStatus = getReportWorkflowStatus(reportsAmData, feedingAmData, appointmentId);
+        const yesterdayPmStatus = getSavedWorkflowStatusValue(yesterdayReportsPmStatuses, appointmentId) || 'dne';
         let lunchType = '';
         if (isScheduledLunch) {
           lunchType = lunchDry && lunchWet ? ' (Dry, Wet)' : (lunchDry ? ' (Dry)' : ' (Wet)');
         }
-        let sourceText = fromReportsAm ? 'Do not eat AM meals' : (fromYesterday ? 'Do not eat yesterday\'s PM Meals' : (isScheduledLunch ? 'Scheduled for lunch' + lunchType : '-'));
+        let sourceText = fromReportsAm ? getFeedingConcernLabel(reportsAmStatus, 'AM') : (fromYesterday ? (yesterdayPmStatus === 'partial_meal' ? 'Partial PM Meal (yesterday)' : 'Do not eat yesterday\'s PM Meals') : (isScheduledLunch ? 'Scheduled for lunch' + lunchType : '-'));
         const petAvatarUrl = pet.pet_img ? '{{ asset("storage/pets/") }}/' + pet.pet_img : '{{ asset("images/no_image.jpg") }}';
         const customerAvatarUrl = pet.customer_avatar ? '{{ asset("storage/profiles/") }}/' + pet.customer_avatar : '{{ asset("images/default-user-avatar.png") }}';
 
         const item = checkinMap[appointmentId];
         const flows = (item && item.checkin) ? (item.checkin.flows || {}) : {};
-        const dryFood = flows.dry_food || {};
-        const wetFood = flows.wet_food || {};
+        const dryFoodRows = getFoodRowsFromFlows(flows, 'dry');
+        const wetFoodRows = getFoodRowsFromFlows(flows, 'wet');
         const mealTypes = [];
         const amounts = [];
-        if (dryFood.brand || dryFood.amount) {
+        if (dryFoodRows.length > 0) {
           mealTypes.push('Dry');
-          if (dryFood.amount) amounts.push(dryFood.amount);
+          dryFoodRows.forEach(row => {
+            if (row.amount) amounts.push(row.amount);
+          });
         }
-        if (wetFood.brand || wetFood.amount) {
+        if (wetFoodRows.length > 0) {
           mealTypes.push('Wet');
-          if (wetFood.amount) amounts.push(wetFood.amount);
+          wetFoodRows.forEach(row => {
+            if (row.amount) amounts.push(row.amount);
+          });
         }
         const mealsText = mealTypes.length > 0 ? mealTypes.join(' or ') : '-';
         const amountText = amounts.length > 0 ? amounts.join(' / ') : '-';
         const issueVal = fromReportsAm
-          ? (reportsAmIssues[appointmentId] || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          ? (reportsAmStatus === 'partial_meal' ? getFeedingPartialMealNote(feedingAmData, appointmentId) : getSavedWorkflowTextValue(reportsAmIssues, appointmentId)).replace(/</g, '&lt;').replace(/>/g, '&gt;')
           : (fromYesterday ? (yesterdayReportsPmIssues[appointmentId] || yesterdayReportsPmIssues[String(appointmentId)] || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '');
 
         bodyHtml += `<tr class="hover:bg-base-200" data-appointment-id="${appointmentId}">`;
@@ -1780,7 +2144,9 @@
         bodyHtml += `<td><span class="text-sm">${sourceText}</span></td>`;
         bodyHtml += `<td><span class="text-sm">${mealsText}</span></td>`;
         bodyHtml += `<td><span class="text-sm">${amountText}</span></td>`;
+        const savedNote = (savedLunchNotes[appointmentId] || savedLunchNotes[String(appointmentId)] || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         bodyHtml += `<td><span class="text-sm">${issueVal || '—'}</span></td>`;
+        bodyHtml += `<td><textarea id="lunch_note_${appointmentId}" class="textarea textarea-bordered textarea-sm w-full" rows="2" style="min-height: 2rem;" placeholder="Notes...">${savedNote}</textarea></td>`;
         bodyHtml += '</tr>';
       });
     }
@@ -1815,21 +2181,28 @@
       .filter(function(id) {
         if (isNaN(id)) return false;
         const petTreatmentData = treatmentDataForRest[id] || treatmentDataForRest[String(id)] || {};
-        return petTreatmentData.assign_rest === true;
+        return petTreatmentData.assign_rest === true || petTreatmentData.assign_rest === 'true' || petTreatmentData.assign_rest === 1 || petTreatmentData.assign_rest === '1';
       });
     let restScheduledIds = [];
+    const checkinRestMeta = {};
     if (checkinData && Array.isArray(checkinData)) {
       checkinData.forEach(function(item) {
+        const aid = getWorkflowItemId(item);
+        if (aid !== null) {
+          checkinRestMeta[String(aid)] = {
+            rest_required: item.rest_required === true || item.rest_required === 'true' || item.rest_required === 1 || item.rest_required === '1',
+            rest_note: ((item.rest_note || '') + '').trim()
+          };
+        }
         if (item.scheduled_rest === true || item.scheduled_rest === 'true') {
-          const aid = parseInt(item.appointment_id, 10);
-          if (!isNaN(aid) && appointmentToPetMap[aid]) restScheduledIds.push(aid);
+          if (aid !== null && appointmentToPetMap[aid]) restScheduledIds.push(aid);
         }
       });
     }
     const allRestIds = [...new Set([...assignRestIds, ...restScheduledIds])];
     const assignRestSet = new Set(assignRestIds.map(function(id) { return String(id); }));
 
-    $('#treatment_lunch_rest_thead').html('<tr><th style="min-width: 200px;">Pet</th><th style="min-width: 200px;">Customer</th><th style="min-width: 280px;">Issue</th></tr>');
+    $('#treatment_lunch_rest_thead').html('<tr><th style="min-width: 200px;">Pet</th><th style="min-width: 200px;">Customer</th><th style="min-width: 280px;">Issue</th><th style="min-width: 300px;">Rest Detail</th></tr>');
     let bodyHtml = '';
     if (allRestIds.length === 0) {
       $('#treatment_lunch_rest_form_container').hide();
@@ -1847,16 +2220,21 @@
         const pet = appointmentToPetMap[appointmentId];
         if (!pet) return;
         const fromAssignRest = assignRestSet.has(String(appointmentId));
+        const petTreatmentData = treatmentDataForRest[appointmentId] || treatmentDataForRest[String(appointmentId)] || {};
+        const checkinRestData = checkinRestMeta[String(appointmentId)] || {};
         const petCheckData = checkPetCheckData[appointmentId] || {};
         let issuesText = '—';
+        let restDetailText = '—';
         if (fromAssignRest) {
           const issues = [];
           Object.keys(petCheckData).forEach(function(partKey) {
             if (petCheckData[partKey].status === 'issue') issues.push(bodyPartsMapTLR[partKey] || partKey);
           });
           issuesText = issues.join(', ') || '—';
+          restDetailText = ((petTreatmentData.rest_detail || '') + '').trim() || '—';
         } else {
           issuesText = 'Scheduled rest';
+          restDetailText = checkinRestData.rest_note || '—';
         }
         const petAvatarUrl = pet.pet_img ? '{{ asset("storage/pets/") }}/' + pet.pet_img : '{{ asset("images/no_image.jpg") }}';
         const customerAvatarUrl = pet.customer_avatar ? '{{ asset("storage/profiles/") }}/' + pet.customer_avatar : '{{ asset("images/default-user-avatar.png") }}';
@@ -1864,6 +2242,7 @@
         bodyHtml += '<td><div class="flex items-center space-x-3"><img src="' + petAvatarUrl + '" alt="Pet" class="mask mask-squircle bg-base-200 size-10" /><span>' + (pet.pet_name || 'N/A') + '</span></div></td>';
         bodyHtml += '<td><div class="flex items-center space-x-3"><img src="' + customerAvatarUrl + '" alt="Customer" class="mask mask-squircle bg-base-200 size-10" /><span>' + (pet.customer_name || 'N/A') + '</span></div></td>';
         bodyHtml += '<td><span class="text-sm">' + (issuesText.replace(/</g, '&lt;').replace(/>/g, '&gt;')) + '</span></td>';
+        bodyHtml += '<td><span class="text-sm">' + (restDetailText.replace(/</g, '&lt;').replace(/>/g, '&gt;')) + '</span></td>';
         bodyHtml += '</tr>';
       });
     }
@@ -1895,39 +2274,51 @@
       .filter(function(id) {
         if (isNaN(id)) return false;
         const petTreatmentData = treatmentDataForRest[id] || treatmentDataForRest[String(id)] || {};
-        return petTreatmentData.assign_rest === true;
+        return petTreatmentData.assign_rest === true || petTreatmentData.assign_rest === 'true' || petTreatmentData.assign_rest === 1 || petTreatmentData.assign_rest === '1';
       });
     let restScheduledIds = [];
+    const checkinRestMeta = {};
     if (checkinData && Array.isArray(checkinData)) {
       checkinData.forEach(function(item) {
+        const aid = getWorkflowItemId(item);
+        if (aid !== null) {
+          checkinRestMeta[String(aid)] = {
+            rest_required: item.rest_required === true || item.rest_required === 'true' || item.rest_required === 1 || item.rest_required === '1',
+            rest_note: ((item.rest_note || '') + '').trim()
+          };
+        }
         if (item.scheduled_rest === true || item.scheduled_rest === 'true') {
-          const aid = parseInt(item.appointment_id, 10);
-          if (!isNaN(aid) && appointmentToPetMap[aid]) restScheduledIds.push(aid);
+          if (aid !== null && appointmentToPetMap[aid]) restScheduledIds.push(aid);
         }
       });
     }
     const allRestIds = [...new Set([...assignRestIds, ...restScheduledIds])];
     const assignRestSet = new Set(assignRestIds.map(function(id) { return String(id); }));
 
-    $('#treatment_lunch_rest_thead').html('<tr><th style="min-width: 200px;">Pet</th><th style="min-width: 200px;">Customer</th><th style="min-width: 280px;">Issue</th></tr>');
+    $('#treatment_lunch_rest_thead').html('<tr><th style="min-width: 200px;">Pet</th><th style="min-width: 200px;">Customer</th><th style="min-width: 280px;">Issue</th><th style="min-width: 300px;">Rest Detail</th></tr>');
     let bodyHtml = '';
     if (allRestIds.length === 0) {
-      bodyHtml = '<tr data-empty><td colspan="3" class="text-center p-4 text-base-content/70">No pets with Assign Rest selected in Treatment Plan and no pets scheduled for Rest.</td></tr>';
+      bodyHtml = '<tr data-empty><td colspan="4" class="text-center p-4 text-base-content/70">No pets with Assign Rest selected in Treatment Plan and no pets scheduled for Rest.</td></tr>';
     } else {
       allRestIds.forEach(function(appointmentId) {
         const pet = appointmentToPetMap[appointmentId];
         if (!pet) return;
         const fromAssignRest = assignRestSet.has(String(appointmentId));
+        const petTreatmentData = treatmentDataForRest[appointmentId] || treatmentDataForRest[String(appointmentId)] || {};
+        const checkinRestData = checkinRestMeta[String(appointmentId)] || {};
         const petCheckData = checkPetCheckData[appointmentId] || {};
         let issuesText = '—';
+        let restDetailText = '—';
         if (fromAssignRest) {
           const issues = [];
           Object.keys(petCheckData).forEach(function(partKey) {
             if (petCheckData[partKey].status === 'issue') issues.push(bodyPartsMapTLR[partKey] || partKey);
           });
           issuesText = issues.join(', ') || '—';
+          restDetailText = ((petTreatmentData.rest_detail || '') + '').trim() || '—';
         } else {
           issuesText = 'Scheduled rest';
+          restDetailText = checkinRestData.rest_note || '—';
         }
         const petAvatarUrl = pet.pet_img ? '{{ asset("storage/pets/") }}/' + pet.pet_img : '{{ asset("images/no_image.jpg") }}';
         const customerAvatarUrl = pet.customer_avatar ? '{{ asset("storage/profiles/") }}/' + pet.customer_avatar : '{{ asset("images/default-user-avatar.png") }}';
@@ -1937,6 +2328,7 @@
         bodyHtml += '<td><div class="flex items-center space-x-3"><img src="' + petAvatarUrl + '" alt="Pet" class="mask mask-squircle bg-base-200 size-10" /><span>' + (pet.pet_name || 'N/A') + '</span></div></td>';
         bodyHtml += '<td><div class="flex items-center space-x-3"><img src="' + customerAvatarUrl + '" alt="Customer" class="mask mask-squircle bg-base-200 size-10" /><span>' + (pet.customer_name || 'N/A') + '</span></div></td>';
         bodyHtml += '<td><span class="text-sm">' + (issuesText.replace(/</g, '&lt;').replace(/>/g, '&gt;')) + '</span></td>';
+        bodyHtml += '<td><span class="text-sm">' + (restDetailText.replace(/</g, '&lt;').replace(/>/g, '&gt;')) + '</span></td>';
         bodyHtml += '</tr>';
       });
     }
@@ -1972,7 +2364,7 @@
     $('#treatment_lunch_rest_thead').html('<tr><th style="min-width: 180px;">Dog Name</th><th style="min-width: 160px;">Issue</th><th style="min-width: 120px;">In-house/Vet visit</th><th style="min-width: 220px;">Detail</th><th style="min-width: 180px;">Status</th></tr>');
     let bodyHtml = '';
     if (treatmentListBasePetIds.length === 0) {
-      bodyHtml = '<tr data-empty><td colspan="5" class="text-center p-4 text-base-content/70">No pets with issues from nose-to-tail check. Complete Treatment List and Treatments (TLR) first. (Pets who did not eat AM/PM meals are listed in Issues and Concerns on the End of Day report.)</td></tr>';
+      bodyHtml = '<tr data-empty><td colspan="5" class="text-center p-4 text-base-content/70">No pets with issues from nose-to-tail check. Complete Treatments (TLR) first. (Pets who did not eat AM/PM meals are listed in Issues and Concerns on the End of Day report.)</td></tr>';
     } else {
       treatmentListBasePetIds.forEach(appointmentId => {
         const pet = appointmentToPetMap[appointmentId];
@@ -2010,6 +2402,121 @@
     updatePetCountsDisplay(treatmentListBasePetIds.length, selectedAppointmentIds.length);
   }
 
+  function renderPrnForm(checkinData) {
+    const savedPrnData = (workflowData['prn_meds'] && workflowData['prn_meds'].prn_records) ? workflowData['prn_meds'].prn_records : {};
+
+    // Only show pets that have at least one medication with dispense_prn checked at check-in
+    const prnPets = (checkinData && checkinData.length > 0)
+      ? checkinData.filter(function(pet) {
+          const flows = (pet.checkin || {}).flows || {};
+          const medRows = getMedicationRowsFromFlows(flows);
+          return medRows.some(function(row) { return isFlowChecked(row && row.dispense_prn); });
+        })
+      : [];
+
+    let theadHtml = `<tr>
+      <th>Pet Name</th>
+      <th>Customer</th>
+      <th>Medication Name</th>
+      <th>Amount / Dose</th>
+    </tr>`;
+    $('#prn_thead').html(theadHtml);
+
+    let tbodyHtml = '';
+    if (prnPets.length > 0) {
+      prnPets.forEach(function(pet) {
+        const workflowId = pet.workflow_id || pet.appointment_id;
+        const saved = savedPrnData[workflowId] || {};
+        const medicationName = saved.medication_name || '';
+        const amount = saved.amount || '';
+        const petName = pet.pet_name || 'Unknown Pet';
+        const customerName = pet.customer_name || '';
+        const petAvatarUrl = pet.pet_img ? '{{ asset("storage/pets/") }}/' + pet.pet_img : '{{ asset("images/no_image.jpg") }}';
+        tbodyHtml += `<tr>
+          <td>
+            <div class="flex items-center space-x-3">
+              <img src="${petAvatarUrl}" alt="Pet" class="mask mask-squircle bg-base-200 size-10" />
+              <span class="font-medium">${petName}</span>
+            </div>
+          </td>
+          <td class="text-base-content/70">${customerName}</td>
+          <td><input type="text" class="input input-sm prn-medication-name" data-workflow-id="${workflowId}" value="${medicationName.replace(/"/g, '&quot;')}" placeholder="Medication name" /></td>
+          <td><input type="text" class="input input-sm prn-amount" data-workflow-id="${workflowId}" value="${amount.replace(/"/g, '&quot;')}" placeholder="e.g. 1 tablet" /></td>
+        </tr>`;
+      });
+    } else {
+      tbodyHtml = '<tr><td colspan="4" class="text-center p-4 text-base-content/70">No pets with PRN medications found for this date.</td></tr>';
+    }
+    $('#prn_tbody').html(tbodyHtml);
+
+    // Save PRN records when inputs change
+    $('#prn_tbody').off('input.prn').on('input.prn', '.prn-medication-name, .prn-amount', function() {
+      savePrnRecords();
+    });
+
+    if (prnPets.length > 0) {
+      $('#save_details_btn_container').show();
+      $('#staff_sign_off_container').show();
+    } else {
+      $('#save_details_btn_container').hide();
+      $('#staff_sign_off_container').hide();
+    }
+  }
+
+  function savePrnRecords() {
+    const prn_records = {};
+    $('#prn_tbody tr').each(function() {
+      const $medInput = $(this).find('.prn-medication-name');
+      const $amtInput = $(this).find('.prn-amount');
+      if ($medInput.length) {
+        const workflowId = $medInput.data('workflow-id');
+        prn_records[workflowId] = {
+          medication_name: $medInput.val(),
+          amount: $amtInput.val()
+        };
+      }
+    });
+    if (!workflowData['prn_meds']) workflowData['prn_meds'] = {};
+    workflowData['prn_meds'].prn_records = prn_records;
+  }
+
+  function renderReportPrnForm() {
+    const savedPrnData = (workflowData['prn_meds'] && workflowData['prn_meds'].prn_records) ? workflowData['prn_meds'].prn_records : {};
+
+    let theadHtml = `<tr>
+      <th>Pet Name</th>
+      <th>Medication Name</th>
+      <th>Amount / Dose</th>
+    </tr>`;
+    $('#prn_thead').html(theadHtml);
+
+    const entries = Object.entries(savedPrnData);
+    let tbodyHtml = '';
+    if (entries.length > 0) {
+      entries.forEach(function([workflowId, rec]) {
+        const medName = rec.medication_name || '—';
+        const amount = rec.amount || '—';
+        const pet = appointmentToPetMap[workflowId] || appointmentToPetMap[String(workflowId)] || null;
+        const petName = pet && pet.pet_name ? pet.pet_name : ('Pet #' + workflowId);
+        const petImg = pet && pet.pet_img ? pet.pet_img : '';
+        const petAvatarUrl = petImg ? '{{ asset("storage/pets/") }}/' + petImg : '{{ asset("images/no_image.jpg") }}';
+        tbodyHtml += `<tr>
+          <td>
+            <div class="flex items-center space-x-3">
+              <img src="${petAvatarUrl}" alt="Pet" class="mask mask-squircle bg-base-200 size-10" />
+              <span class="font-medium">${petName}</span>
+            </div>
+          </td>
+          <td>${medName}</td>
+          <td>${amount}</td>
+        </tr>`;
+      });
+    } else {
+      tbodyHtml = '<tr><td colspan="3" class="text-center p-4 text-base-content/70">No PRN records saved for this date.</td></tr>';
+    }
+    $('#prn_tbody').html(tbodyHtml);
+  }
+
   function renderEndOfDayForm() {
     const date = $('#workflow_date').val() || '{{ \Carbon\Carbon::today()->format("Y-m-d") }}';
     const reportUrl = '{{ url("/reports/end-of-day") }}?date=' + encodeURIComponent(date) + '&embed=1';
@@ -2021,25 +2528,240 @@
     });
   }
 
+  function isFlowChecked(value) {
+    return value === true || value === 'true';
+  }
+
+    function getSavedWorkflowTextValue(map, workflowId) {
+      if (!map || typeof map !== 'object') {
+        return '';
+      }
+
+      return (map[workflowId] || map[String(workflowId)] || '').toString().trim();
+    }
+
+    function getFeedingStepKey(processId) {
+      if (processId === 'feeding_am' || processId === 'reports_am' || processId === 'dne_list_am') {
+        return 'feeding_am';
+      }
+      if (processId === 'feeding_pm' || processId === 'reports_pm' || processId === 'dne_list_pm') {
+        return 'feeding_pm';
+      }
+
+      return null;
+    }
+
+    function getFeedingSelectedPetIds(feedingData) {
+      return Array.isArray(feedingData.selected_pet_ids) ? feedingData.selected_pet_ids.map(id => parseInt(id, 10)).filter(id => !isNaN(id)) : [];
+    }
+
+    function getFeedingPartialMealNote(feedingData, workflowId) {
+      return getSavedWorkflowTextValue((feedingData || {}).partial_meal_notes || {}, workflowId);
+    }
+
+    function getFeedingReportStatus(feedingData, workflowId) {
+      const selectedPetIds = getFeedingSelectedPetIds(feedingData || {});
+      const isChecked = selectedPetIds.includes(parseInt(workflowId, 10));
+      if (!isChecked) {
+        return 'dne';
+      }
+
+      return getFeedingPartialMealNote(feedingData, workflowId) ? 'partial_meal' : 'completed';
+    }
+
+    function getFeedingReportStatusLabel(status) {
+      return status === 'partial_meal' ? 'Partial Meal' : 'DNE';
+    }
+
+    function getFeedingReportIssueValue(reportData, feedingData, workflowId) {
+      const status = getFeedingReportStatus(feedingData, workflowId);
+      if (status === 'partial_meal') {
+        return getFeedingPartialMealNote(feedingData, workflowId);
+      }
+
+      return getSavedWorkflowTextValue((reportData || {}).issues || {}, workflowId);
+    }
+
+    function getSavedWorkflowStatusValue(map, workflowId) {
+      return getSavedWorkflowTextValue(map, workflowId).toLowerCase();
+    }
+
+    function getReportWorkflowStatus(reportData, feedingData, workflowId) {
+      return getSavedWorkflowStatusValue((reportData || {}).statuses || {}, workflowId) || getFeedingReportStatus(feedingData, workflowId);
+    }
+
+    function getFeedingConcernLabel(status, periodLabel) {
+      return status === 'partial_meal' ? `Partial ${periodLabel} Meal` : `Do not eat ${periodLabel} Meals`;
+    }
+
+  function getFoodRowsFromFlows(flows, type) {
+    const listKey = type === 'dry' ? 'dry_food_list' : 'wet_food_list';
+    const singleKey = type === 'dry' ? 'dry_food' : 'wet_food';
+    const rows = Array.isArray(flows[listKey]) ? flows[listKey].filter(item => item && typeof item === 'object') : [];
+
+    if (rows.length > 0) {
+      return rows;
+    }
+
+    const fallback = flows[singleKey] || {};
+    if (fallback.brand || fallback.amount || isFlowChecked(fallback.dispense_am) || isFlowChecked(fallback.dispense_pm) || isFlowChecked(fallback.dispense_lunch)) {
+      return [fallback];
+    }
+
+    return [];
+  }
+
+  function getMedicationRowsFromFlows(flows) {
+    const normalizeMedicationRow = function(row) {
+      const medicationRow = row && typeof row === 'object' ? { ...row } : {};
+      let mealCondition = String(medicationRow.meal_condition || medicationRow.condition || '').trim();
+      if (mealCondition === 'after_meals') {
+        mealCondition = 'after_meal';
+      }
+      if (mealCondition) {
+        medicationRow.meal_condition = mealCondition;
+      }
+      return medicationRow;
+    };
+
+    const rows = Array.isArray(flows.meds_list) ? flows.meds_list.filter(item => item && typeof item === 'object').map(normalizeMedicationRow) : [];
+    if (rows.length > 0) {
+      return rows;
+    }
+
+    const fallback = flows.meds || {};
+    if (fallback.name || fallback.amount || isFlowChecked(fallback.dispense_am) || isFlowChecked(fallback.dispense_pm) || isFlowChecked(fallback.dispense_rest) || isFlowChecked(fallback.dispense_prn)) {
+      return [normalizeMedicationRow(fallback)];
+    }
+
+    return [];
+  }
+
+  function hasFoodDispense(rows, period) {
+    return rows.some(row => isFlowChecked(row && row[period]));
+  }
+
+  function hasMedicationDispense(rows, period) {
+    return rows.some(row => isFlowChecked(row && row[period]));
+  }
+
+  function buildFoodDisplayText(rows, displayPeriod = null) {
+    if (!rows || rows.length === 0) {
+      return '-';
+    }
+
+    const periodKey = displayPeriod === 'am' ? 'dispense_am' : (displayPeriod === 'pm' ? 'dispense_pm' : null);
+    const rowsToRender = periodKey
+      ? rows.filter(row => isFlowChecked(row && row[periodKey]))
+      : rows;
+    if (rowsToRender.length === 0) {
+      return '-';
+    }
+
+    const rowTexts = rowsToRender.map(row => {
+      const labels = [];
+      if (displayPeriod === 'am') {
+        labels.push('AM');
+      } else if (displayPeriod === 'pm') {
+        labels.push('PM');
+      } else {
+        if (isFlowChecked(row.dispense_am)) labels.push('AM');
+        if (isFlowChecked(row.dispense_pm)) labels.push('PM');
+        if (isFlowChecked(row.dispense_lunch)) labels.push('Lunch');
+      }
+
+      const parts = [];
+      if (row.brand) parts.push(row.brand);
+      if (row.amount) parts.push(row.amount);
+      if (labels.length > 0) parts.push(labels.join(' + '));
+
+      return parts.join(' ').trim();
+    }).filter(Boolean);
+
+    return rowTexts.length > 0 ? rowTexts.join(' | ') : '-';
+  }
+
+  function buildMedicationDisplayText(rows, displayPeriod = null) {
+    if (!rows || rows.length === 0) {
+      return '-';
+    }
+
+    const periodKey = displayPeriod === 'am' ? 'dispense_am' : (displayPeriod === 'pm' ? 'dispense_pm' : null);
+    const rowsToRender = periodKey ? rows.filter(row => isFlowChecked(row && row[periodKey])) : rows;
+    if (rowsToRender.length === 0) {
+      return '-';
+    }
+
+    const rowTexts = rowsToRender.map(row => {
+      const labels = [];
+      if (displayPeriod === 'am') {
+        if (isFlowChecked(row.dispense_am)) labels.push('AM');
+        if (isFlowChecked(row.dispense_prn)) labels.push('PRN');
+      } else if (displayPeriod === 'pm') {
+        if (isFlowChecked(row.dispense_pm)) labels.push('PM');
+        if (isFlowChecked(row.dispense_prn)) labels.push('PRN');
+      } else {
+        if (isFlowChecked(row.dispense_am)) labels.push('AM');
+        if (isFlowChecked(row.dispense_pm)) labels.push('PM');
+        if (isFlowChecked(row.dispense_rest)) labels.push('Rest');
+        if (isFlowChecked(row.dispense_before_bed)) labels.push('Before Bed');
+        if (isFlowChecked(row.dispense_prn)) labels.push('PRN');
+        if (isFlowChecked(row.dispense_custom_time)) {
+          labels.push(row.custom_time ? `Custom Time (${row.custom_time})` : 'Custom Time');
+        }
+      }
+
+      let mealCondition = String((row.meal_condition || row.condition || '')).trim();
+      if (mealCondition === 'after_meals') {
+        mealCondition = 'after_meal';
+      }
+      const mealConditionLabels = {
+        after_meal: 'After Meal',
+        before_meal: 'Before Meal',
+        empty_stomach: 'Empty Stomach'
+      };
+      const mealConditionLabel = mealConditionLabels[mealCondition] || '';
+
+      const parts = [];
+      if (row.name) parts.push(row.name);
+      if (row.amount) parts.push(row.amount);
+
+      if (labels.length > 0 || mealConditionLabel) {
+        const timingLabel = labels.join(' + ');
+        parts.push(mealConditionLabel && timingLabel ? `${timingLabel} — ${mealConditionLabel}` : (timingLabel || mealConditionLabel));
+      }
+
+      return parts.join(' ').trim();
+    }).filter(Boolean);
+
+    return rowTexts.length > 0 ? rowTexts.join(' | ') : '-';
+  }
+
   function renderPetDetailsTable(data) {
     let html = '';
 
+      const isFeedingDispenseStep = currentProcessItem === 'feeding_am' || currentProcessItem === 'feeding_pm';
     const isAmFeedingReport = currentProcessItem === 'reports_am';
     const isPmFeedingReport = currentProcessItem === 'reports_pm';
     const isFeedingReport = isAmFeedingReport || isPmFeedingReport;
     const currentData = workflowData[currentProcessItem] || {};
     const savedIssues = currentData.issues || {};
+      const savedPartialMealNotes = currentData.partial_meal_notes || {};
 
     let filteredData = data;
     if (isAmFeedingReport) {
       const feedingAmData = workflowData['feeding_am'] || {};
-      const feedingAmPetIds = feedingAmData.selected_pet_ids ? feedingAmData.selected_pet_ids.map(id => parseInt(id)) : [];
-      filteredData = data.filter(item => !feedingAmPetIds.includes(parseInt(item.appointment_id)));
+      filteredData = data.filter(item => {
+        const workflowId = getWorkflowItemId(item);
+          return workflowId === null || getFeedingReportStatus(feedingAmData, workflowId) !== 'completed';
+      });
     }
     if (isPmFeedingReport) {
       const feedingPmData = workflowData['feeding_pm'] || {};
-      const feedingPmPetIds = feedingPmData.selected_pet_ids ? feedingPmData.selected_pet_ids.map(id => parseInt(id)) : [];
-      filteredData = data.filter(item => !feedingPmPetIds.includes(parseInt(item.appointment_id)));
+      filteredData = data.filter(item => {
+        const workflowId = getWorkflowItemId(item);
+          return workflowId === null || getFeedingReportStatus(feedingPmData, workflowId) !== 'completed';
+      });
     }
 
     // Meal/Meds preparation: only show pets that have the corresponding AM/PM dispense checked at check-in
@@ -2050,15 +2772,15 @@
     if (isAmFood || isPmFood || isAmMeds || isPmMeds) {
       filteredData = filteredData.filter(item => {
         const flows = (item.checkin || {}).flows || {};
-        const dryFood = flows.dry_food || {};
-        const wetFood = flows.wet_food || {};
-        const meds = flows.meds || {};
-        const dryAm = dryFood.dispense_am === true || dryFood.dispense_am === 'true';
-        const dryPm = dryFood.dispense_pm === true || dryFood.dispense_pm === 'true';
-        const wetAm = wetFood.dispense_am === true || wetFood.dispense_am === 'true';
-        const wetPm = wetFood.dispense_pm === true || wetFood.dispense_pm === 'true';
-        const medsAm = meds.dispense_am === true || meds.dispense_am === 'true';
-        const medsPm = meds.dispense_pm === true || meds.dispense_pm === 'true';
+        const dryFoodRows = getFoodRowsFromFlows(flows, 'dry');
+        const wetFoodRows = getFoodRowsFromFlows(flows, 'wet');
+        const medicationRows = getMedicationRowsFromFlows(flows);
+        const dryAm = hasFoodDispense(dryFoodRows, 'dispense_am');
+        const dryPm = hasFoodDispense(dryFoodRows, 'dispense_pm');
+        const wetAm = hasFoodDispense(wetFoodRows, 'dispense_am');
+        const wetPm = hasFoodDispense(wetFoodRows, 'dispense_pm');
+        const medsAm = hasMedicationDispense(medicationRows, 'dispense_am');
+        const medsPm = hasMedicationDispense(medicationRows, 'dispense_pm');
         if (isAmFood) return dryAm || wetAm;
         if (isPmFood) return dryPm || wetPm;
         if (isAmMeds) return medsAm;
@@ -2097,48 +2819,22 @@
     }
 
     filteredData.forEach(item => {
+      const workflowId = getWorkflowItemId(item);
+      if (workflowId === null) return;
       const checkin = item.checkin || {};
       const flows = checkin.flows || {};
-      const dryFood = flows.dry_food || {};
-      const wetFood = flows.wet_food || {};
-      const meds = flows.meds || {};
+      const dryFoodRows = getFoodRowsFromFlows(flows, 'dry');
+      const wetFoodRows = getFoodRowsFromFlows(flows, 'wet');
+      const medicationRows = getMedicationRowsFromFlows(flows);
+      const displayPeriod = currentTab === 'am-feeding-meds' ? 'am' : (currentTab === 'pm-feeding-meds' ? 'pm' : null);
 
-      const dryFoodDispense = [];
-      if (dryFood.dispense_am === true || dryFood.dispense_am === 'true') dryFoodDispense.push('AM');
-      if (dryFood.dispense_pm === true || dryFood.dispense_pm === 'true') dryFoodDispense.push('PM');
-      const dryFoodDispenseText = dryFoodDispense.length > 0 ? dryFoodDispense.join(' + ') : '-';
-
-      const wetFoodDispense = [];
-      if (wetFood.dispense_am === true || wetFood.dispense_am === 'true') wetFoodDispense.push('AM');
-      if (wetFood.dispense_pm === true || wetFood.dispense_pm === 'true') wetFoodDispense.push('PM');
-      const wetFoodDispenseText = wetFoodDispense.length > 0 ? wetFoodDispense.join(' + ') : '-';
-
-      const medsDispense = [];
-      if (meds.dispense_am === true || meds.dispense_am === 'true') medsDispense.push('AM');
-      if (meds.dispense_pm === true || meds.dispense_pm === 'true') medsDispense.push('PM');
-      const medsDispenseText = medsDispense.length > 0 ? medsDispense.join(' + ') : '-';
-
-      const dryFoodParts = [];
-      if (dryFood.brand) dryFoodParts.push(dryFood.brand);
-      if (dryFood.amount) dryFoodParts.push(dryFood.amount);
-      if (dryFoodDispenseText !== '-') dryFoodParts.push(dryFoodDispenseText);
-      const dryFoodHtml = dryFoodParts.length > 0 ? dryFoodParts.join(' ') : '-';
-
-      const wetFoodParts = [];
-      if (wetFood.brand) wetFoodParts.push(wetFood.brand);
-      if (wetFood.amount) wetFoodParts.push(wetFood.amount);
-      if (wetFoodDispenseText !== '-') wetFoodParts.push(wetFoodDispenseText);
-      const wetFoodHtml = wetFoodParts.length > 0 ? wetFoodParts.join(' ') : '-';
-
-      const medsParts = [];
-      if (meds.name) medsParts.push(meds.name);
-      if (meds.amount) medsParts.push(meds.amount);
-      if (medsDispenseText !== '-') medsParts.push(medsDispenseText);
-      const medsHtml = medsParts.length > 0 ? medsParts.join(' ') : '-';
+      const dryFoodHtml = buildFoodDisplayText(dryFoodRows, displayPeriod);
+      const wetFoodHtml = buildFoodDisplayText(wetFoodRows, displayPeriod);
+      const medsHtml = buildMedicationDisplayText(medicationRows, displayPeriod);
 
       const savedData = workflowData[currentProcessItem];
       const savedPetIds = savedData && savedData.selected_pet_ids ? savedData.selected_pet_ids.map(id => parseInt(id)) : [];
-      const isChecked = (isAmFeedingReport || isPmFeedingReport) ? true : savedPetIds.includes(parseInt(item.appointment_id));
+      const isChecked = (isAmFeedingReport || isPmFeedingReport) ? true : savedPetIds.includes(workflowId);
 
       const petAvatarUrl = item.pet_img 
         ? '{{ asset("storage/pets/") }}/' + item.pet_img 
@@ -2148,17 +2844,27 @@
         ? '{{ asset("storage/profiles/") }}/' + item.customer_avatar 
         : '{{ asset("images/default-user-avatar.png") }}';
 
-      const issueValue = savedIssues[item.appointment_id] || '';
+      const feedingReportData = isAmFeedingReport ? (workflowData['feeding_am'] || {}) : (isPmFeedingReport ? (workflowData['feeding_pm'] || {}) : {});
+      const reportStatus = isFeedingReport ? getFeedingReportStatus(feedingReportData, workflowId) : '';
+      const reportStatusLabel = isFeedingReport ? getFeedingReportStatusLabel(reportStatus) : '';
+      const issueValue = isFeedingReport
+        ? getFeedingReportIssueValue(currentData, feedingReportData, workflowId)
+        : getSavedWorkflowTextValue(savedIssues, workflowId);
+      const partialMealNoteValue = getSavedWorkflowTextValue(savedPartialMealNotes, workflowId);
+      const dryColumnValue = isFeedingReport ? reportStatusLabel : dryFoodHtml;
+      const wetColumnValue = isFeedingReport ? '' : wetFoodHtml;
       const issueCell = isFeedingReport
-        ? `<textarea class="textarea textarea-bordered textarea-xs w-full issue-input" rows="2" style="min-height: 2rem;" data-appointment-id="${item.appointment_id}">${issueValue ? issueValue.replace(/</g, '&lt;').replace(/>/g, '&gt;') : ''}</textarea>`
-        : (issueValue || '');
+        ? `<textarea class="textarea textarea-bordered textarea-xs w-full issue-input" rows="2" style="min-height: 2rem;" data-appointment-id="${workflowId}" ${reportStatus === 'partial_meal' ? 'readonly' : ''}>${issueValue ? issueValue.replace(/</g, '&lt;').replace(/>/g, '&gt;') : ''}</textarea>`
+        : (isFeedingDispenseStep
+          ? `<textarea class="textarea textarea-bordered textarea-xs w-full partial-meal-note-input" rows="2" style="min-height: 2rem;" data-appointment-id="${workflowId}" placeholder="Partial meal note (optional)...">${partialMealNoteValue ? partialMealNoteValue.replace(/</g, '&lt;').replace(/>/g, '&gt;') : ''}</textarea>`
+          : (issueValue || ''));
 
       const checkboxCell = (isAmFeedingReport || isPmFeedingReport) ? '' : `
           <td>
-            <input class="checkbox checkbox-sm pet-checkbox" type="checkbox" data-appointment-id="${item.appointment_id}" ${isChecked ? 'checked' : ''} />
+            <input class="checkbox checkbox-sm pet-checkbox" type="checkbox" data-appointment-id="${workflowId}" ${isChecked ? 'checked' : ''} />
           </td>`;
       html += `
-        <tr class="hover:bg-base-200" data-appointment-id="${item.appointment_id}">
+        <tr class="hover:bg-base-200" data-appointment-id="${workflowId}">
           ${checkboxCell}
           <td>
             <div class="flex items-center space-x-3">
@@ -2172,8 +2878,8 @@
               <span>${item.customer_name || 'N/A'}</span>
             </div>
           </td>
-          <td class="food-column">${dryFoodHtml}</td>
-          <td class="food-column">${wetFoodHtml}</td>
+          <td class="food-column dry-food-column">${dryColumnValue}</td>
+          <td class="food-column wet-food-column">${wetColumnValue}</td>
           <td class="meds-column">${medsHtml}</td>
           <td class="issue-column">${issueCell}</td>
         </tr>
@@ -2200,7 +2906,20 @@
   }
 
   $('#pet_details_search').on('input', function() {
-    const searchTerm = $(this).val().toLowerCase();
+    const searchTerm = ($(this).val() || '').trim().toLowerCase();
+
+    if (currentProcessItem === 'check_pet') {
+      const cards = $('#check_pet_accordion details[data-appointment-id]');
+      cards.each(function() {
+        const $card = $(this);
+        const petName = String($card.data('pet-name') || '').toLowerCase();
+        const customerName = String($card.data('customer-name') || '').toLowerCase();
+        const match = !searchTerm || petName.includes(searchTerm) || customerName.includes(searchTerm);
+        $card.toggle(match);
+      });
+      return;
+    }
+
     const rows = $('#pet_details_tbody tr');
     if (searchTerm === '') {
       rows.show();
@@ -2242,6 +2961,30 @@
     $list.html(html);
   }
 
+  function scrollPageToTopOnSuccessfulSave() {
+    if (window.location.hash) {
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+
+    const candidates = [
+      document.scrollingElement,
+      document.documentElement,
+      document.body,
+      document.getElementById('layout-content'),
+      document.querySelector('.flex.h-screen.min-w-0.grow.flex-col.overflow-auto')
+    ].filter(Boolean);
+
+    candidates.forEach((element) => {
+      if (typeof element.scrollTo === 'function') {
+        element.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        element.scrollTop = 0;
+      }
+    });
+
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
   $('#save_pet_details_btn').on('click', function() {
     const isFoodStep =
       (currentTab === 'am-feeding-meds' && (currentProcessItem === 'food_prep_am' || currentProcessItem === 'feeding_am')) ||
@@ -2253,23 +2996,45 @@
 
     if (currentProcessItem === 'check_pet') {
       const checkPetData = {};
+      const fleaTickData = {};
       selectedAppointmentIds.forEach(appointmentId => {
         const pet = appointmentToPetMap[appointmentId];
         if (!pet) return;
         
         const bodyParts = [
-          'Nose', 'Ears', 'Eyes', 'Mouth', 'Body/Coat', 'Paws/Feet', 'Abdomen', 'Digestive', 'Diarrhea'
+          { key: 'nose' },
+          { key: 'eyes' },
+          { key: 'ears' },
+          { key: 'mouth' },
+          { key: 'body_coat' },
+          { key: 'paws_feet' },
+          { key: 'abdomen' },
+          { key: 'digestive' },
+          { key: 'diarrhea' }
         ];
         
         checkPetData[appointmentId] = {};
         bodyParts.forEach(part => {
-          const fieldName = `check_${appointmentId}_${part.toLowerCase().replace(/\s+/g, '_')}`;
+          const fieldName = `check_${appointmentId}_${part.key}`;
           const selectedValue = $(`input[name="${fieldName}"]:checked`).val();
+          const noteValue = $(`#concern_note_${appointmentId}_${part.key}`).val() || '';
           
-          checkPetData[appointmentId][part.toLowerCase().replace(/\s+/g, '_')] = {
-            status: selectedValue || ''
+          checkPetData[appointmentId][part.key] = {
+            status: selectedValue || '',
+            note: selectedValue === 'issue' ? noteValue : ''
           };
         });
+
+        fleaTickData[appointmentId] = $(`.flea-tick-checkbox[data-appointment-id="${appointmentId}"]`).is(':checked');
+        if (fleaTickData[appointmentId]) {
+          checkPetData[appointmentId].flea_tick = {
+            status: 'issue'
+          };
+        } else {
+          checkPetData[appointmentId].flea_tick = {
+            status: ''
+          };
+        }
       });
       
       if (!workflowData[currentProcessItem]) {
@@ -2278,6 +3043,7 @@
       workflowData[currentProcessItem].selected_pet_ids = selectedAppointmentIds;
       workflowData[currentProcessItem].process_type = currentProcessItem;
       workflowData[currentProcessItem].check_data = checkPetData;
+      workflowData[currentProcessItem].flea_tick_data = fleaTickData;
     } else if (currentProcessItem === 'treatment_plan') {
       // Get check_pet data to filter pets with issues
       const checkPetData = workflowData['check_pet'] || {};
@@ -2295,14 +3061,24 @@
         if (!pet) return;
         
         const option = $(`input[name="treatment_option_${appointmentId}"]:checked`).val() || '';
-        const additionalOption = $(`#treatment_multi_${appointmentId}`).val() || '';
+        const additionalOptions = $(`#treatment_multi_${appointmentId}`).val() || [];
         const detail = $(`#treatment_detail_${appointmentId}`).val() || '';
-        const assignRest = $(`#assign_rest_${appointmentId}`).is(':checked');
+        let restDetail = $(`#rest_detail_${appointmentId}`).val() || '';
+        let assignRest = $(`#assign_rest_${appointmentId}`).is(':checked');
+        const checkinRestData = checkinRestMetaByAppointmentId[String(appointmentId)] || {};
+        if (checkinRestData.is_assigned === true) {
+          assignRest = true;
+          if (!restDetail.trim()) {
+            restDetail = checkinRestData.rest_note || '';
+          }
+        }
         
         treatmentPlanData[appointmentId] = {
           option: option,
-          additional_options: additionalOption ? [additionalOption] : [],
+          additional_options: Array.isArray(additionalOptions) ? additionalOptions : (additionalOptions ? [additionalOptions] : []),
+          selected_treatments: Array.isArray(additionalOptions) ? additionalOptions : (additionalOptions ? [additionalOptions] : []),
           detail: detail,
+          rest_detail: restDetail,
           assign_rest: assignRest
         };
       });
@@ -2325,6 +3101,46 @@
       if (!workflowData[currentProcessItem]) workflowData[currentProcessItem] = {};
       workflowData[currentProcessItem].selected_pet_ids = lunchPetIds;
       workflowData[currentProcessItem].process_type = 'lunch_tlr';
+      const lunchNotes = {};
+      lunchPetIds.forEach(function(aid) {
+        const note = $('#lunch_note_' + aid).val() || '';
+        if (note) lunchNotes[aid] = note;
+      });
+      workflowData[currentProcessItem].notes = lunchNotes;
+    } else if (currentProcessItem === 'rest_tlr') {
+      const treatmentPlanDataForRest = workflowData['treatment_plan'] || {};
+      const treatmentDataForRest = treatmentPlanDataForRest.treatment_data || {};
+      const assignRestIds = (treatmentPlanDataForRest.selected_pet_ids || [])
+        .map(function(id) { return parseInt(id, 10); })
+        .filter(function(id) {
+          if (isNaN(id)) return false;
+          const petTreatmentData = treatmentDataForRest[id] || treatmentDataForRest[String(id)] || {};
+          return petTreatmentData.assign_rest === true || petTreatmentData.assign_rest === 'true' || petTreatmentData.assign_rest === 1 || petTreatmentData.assign_rest === '1';
+        });
+      let restScheduledIds = [];
+      const restNotes = {};
+      assignRestIds.forEach(function(aid) {
+        const petTreatmentData = treatmentDataForRest[aid] || treatmentDataForRest[String(aid)] || {};
+        const detailText = ((petTreatmentData.rest_detail || '') + '').trim();
+        if (detailText) restNotes[aid] = detailText;
+      });
+      if (lastRestCheckinData && Array.isArray(lastRestCheckinData)) {
+        lastRestCheckinData.forEach(function(item) {
+          if (item.scheduled_rest === true || item.scheduled_rest === 'true') {
+            const aid = getWorkflowItemId(item);
+            if (aid !== null && appointmentToPetMap[aid]) {
+              restScheduledIds.push(aid);
+              const checkinRestNote = ((item.rest_note || '') + '').trim();
+              if (!restNotes[aid] && checkinRestNote) restNotes[aid] = checkinRestNote;
+            }
+          }
+        });
+      }
+      const allRestIds = [...new Set([...assignRestIds, ...restScheduledIds])];
+      if (!workflowData[currentProcessItem]) workflowData[currentProcessItem] = {};
+      workflowData[currentProcessItem].selected_pet_ids = allRestIds;
+      workflowData[currentProcessItem].process_type = currentProcessItem;
+      workflowData[currentProcessItem].notes = restNotes;
     } else if (currentProcessItem === 'treatment_list_tlr') {
       const treatmentListBasePetIds = getTreatmentListBasePetIds();
       const treatmentPlanData = workflowData['treatment_plan'] || {};
@@ -2349,10 +3165,23 @@
         alert_modal.showModal();
         return;
       }
+      const missingEscalateDetails = [];
+      treatmentListBasePetIds.forEach(appointmentId => {
+        const result = $(`input[name="result_tlr_${appointmentId}"]:checked`).val() || '';
+        if (result === 'escalate') {
+          const detail = $(`.escalate-detail-tlr[data-appointment-id="${appointmentId}"]`).val() || '';
+          if (!detail.trim()) missingEscalateDetails.push(appointmentId);
+        }
+      });
+      if (missingEscalateDetails.length > 0) {
+        $('#alert_message').text('Please enter escalate detail for all pets marked as Escalate.');
+        alert_modal.showModal();
+        return;
+      }
       const results = {};
       treatmentListBasePetIds.forEach(appointmentId => {
         const result = $(`input[name="result_tlr_${appointmentId}"]:checked`).val() || '';
-        const detail = $(`.detail-tlr[data-appointment-id="${appointmentId}"]`).val() || '';
+        const detail = result === 'escalate' ? ($(`.escalate-detail-tlr[data-appointment-id="${appointmentId}"]`).val() || '').trim() : '';
         results[appointmentId] = { result, detail };
       });
       if (!workflowData[currentProcessItem]) workflowData[currentProcessItem] = {};
@@ -2373,7 +3202,6 @@
       const prevProcessTime = checkPetDataForTime.process_time || checkPetDataForTime.processTime || treatmentPlanDataForTime.process_time || treatmentPlanDataForTime.processTime || '00:00';
       const selectedIds = [];
       const reported = {};
-      const vetVisit = {};
       const results = {};
       $('.next-day-row-tlr').each(function() {
         const appointmentId = $(this).data('appointment-id');
@@ -2383,18 +3211,13 @@
         }
       });
       nextDayPetIds.forEach(function(appointmentId) {
-        const selectedResult = $(`input[name="next_day_result_tlr_${appointmentId}"]:checked`).val() || '';
-        results[appointmentId] = { result: selectedResult, detail: '' };
-      });
-      $('.vet-visit-tlr').each(function() {
-        const appointmentId = $(this).data('appointment-id');
-        vetVisit[appointmentId] = $(this).is(':checked');
+        const sourceResult = treatmentsTlrResults[appointmentId] || {};
+        results[appointmentId] = { result: sourceResult.result || '', detail: sourceResult.detail || '' };
       });
       if (!workflowData[currentProcessItem]) workflowData[currentProcessItem] = {};
       workflowData[currentProcessItem].selected_pet_ids = selectedIds;
       workflowData[currentProcessItem].process_type = currentProcessItem;
       workflowData[currentProcessItem].reported = reported;
-      workflowData[currentProcessItem].vet_visit = vetVisit;
       workflowData[currentProcessItem].results = results;
     } else if (currentProcessItem === 'dne_list_am' || currentProcessItem === 'dne_list_pm') {
       if (!workflowData[currentProcessItem]) workflowData[currentProcessItem] = {};
@@ -2409,6 +3232,10 @@
       if (!workflowData[currentProcessItem]) workflowData[currentProcessItem] = {};
       workflowData[currentProcessItem].process_type = currentProcessItem;
       workflowData[currentProcessItem].selected_pet_ids = treatmentConcernPetIds;
+    } else if (currentProcessItem === 'prn_meds') {
+      savePrnRecords();
+      if (!workflowData['prn_meds']) workflowData['prn_meds'] = {};
+      workflowData['prn_meds'].process_type = 'prn_meds';
     } else if (currentProcessItem === 'end_of_day') {
       if (!workflowData['end_of_day']) workflowData['end_of_day'] = {};
       workflowData['end_of_day'].process_type = 'end_of_day';
@@ -2424,14 +3251,30 @@
         }
         workflowData[currentProcessItem].selected_pet_ids = checkedIds;
         workflowData[currentProcessItem].process_type = currentProcessItem;
+        if (currentProcessItem === 'feeding_am' || currentProcessItem === 'feeding_pm') {
+          const partialMealNotes = {};
+          $('#pet_details_tbody .partial-meal-note-input').each(function() {
+            const workflowId = $(this).data('appointment-id');
+            const noteValue = ($(this).val() || '').trim();
+            if (noteValue) {
+              partialMealNotes[workflowId] = noteValue;
+            }
+          });
+          workflowData[currentProcessItem].partial_meal_notes = partialMealNotes;
+        }
       }
     }
 
     if (currentProcessItem === 'reports_am' || currentProcessItem === 'reports_pm') {
+      const feedingKey = getFeedingStepKey(currentProcessItem);
+      const feedingData = workflowData[feedingKey] || {};
       const issues = {};
+      const statuses = {};
       $('#pet_details_tbody .issue-input').each(function() {
         const apptId = $(this).data('appointment-id');
-        issues[apptId] = $(this).val() || '';
+        const status = getFeedingReportStatus(feedingData, apptId);
+        statuses[apptId] = status;
+        issues[apptId] = status === 'partial_meal' ? getFeedingPartialMealNote(feedingData, apptId) : ($(this).val() || '').trim();
       });
       const reportSelectedIds = $('#pet_details_tbody tr[data-appointment-id]').map(function() { return $(this).data('appointment-id'); }).get();
       const staffValue = isReportsNoIssue ? '' : $('#staff_sign_off').val();
@@ -2440,13 +3283,14 @@
       workflowData[currentProcessItem] = {
         selected_pet_ids: reportSelectedIds,
         issues: issues,
+        statuses: statuses,
         process_type: currentProcessItem,
         staff_sign_off: staffSignOff,
         process_time: processTime
       };
     }
 
-    const noSignOffSteps = ['dne_list_am', 'dne_list_pm', 'report_lunch', 'report_rest', 'treatment_concern', 'end_of_day'];
+    const noSignOffSteps = ['dne_list_am', 'dne_list_pm', 'report_lunch', 'report_rest', 'report_prn', 'treatment_concern', 'end_of_day'];
     const skipSignOff = noSignOffSteps.includes(currentProcessItem) || isFoodNoRecord || isMedsNoRecord || isReportsNoIssue;
 
     if (skipSignOff) {
@@ -2479,7 +3323,7 @@
     updateWorkflowProgress();
 
     const date = $('#workflow_date').val();
-    const appointmentIds = selectedAppointmentIds;
+    const appointmentIds = getSelectedRequestAppointmentIds();
 
     if (!date || !appointmentIds || appointmentIds.length === 0) {
       $('#alert_message').text('Please fill in all required fields.');
@@ -2519,6 +3363,14 @@
           updateWorkflowProgress();
           $('#alert_message').text(response.message);
           alert_modal.showModal();
+          scrollPageToTopOnSuccessfulSave();
+
+          if (alert_modal) {
+            alert_modal.addEventListener('close', function handleAlertClose() {
+              scrollPageToTopOnSuccessfulSave();
+              alert_modal.removeEventListener('close', handleAlertClose);
+            });
+          }
         } else {
           $('#alert_message').text(response.message || 'Error saving workflow.');
           alert_modal.showModal();
@@ -2539,7 +3391,7 @@
   });
 
   function updateWorkflowProgress() {
-    const progressExcludeIds = ['dne_list_am', 'dne_list_pm', 'report_lunch', 'report_rest', 'treatment_concern', 'end_of_day'];
+    const progressExcludeIds = ['dne_list_am', 'dne_list_pm', 'report_lunch', 'report_rest', 'report_prn', 'treatment_concern', 'end_of_day'];
     const totalProcesses = Object.keys(tabProcesses).reduce((sum, tab) => {
       const count = tabProcesses[tab].filter(p => !progressExcludeIds.includes(p.id)).length;
       return sum + count;
@@ -2587,6 +3439,7 @@
 
   updateSelectedPets();
   loadProcessItems(currentTab);
+  updateProcessDetailTitle();
   updateWorkflowProgress();
   updatePetCountsDisplay(0, null);
 </script>
