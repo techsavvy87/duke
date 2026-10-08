@@ -218,7 +218,9 @@ class AppointmentBookingNotifier
             $lines[] = 'Pickup: ' . $this->formatDate($appointment->end_date);
         }
 
-        if ($location = $this->resolveLocationLabel($appointment)) {
+        if ($familyLocations = $this->resolveFamilyLocationLines($appointment)) {
+            array_push($lines, ...$familyLocations);
+        } elseif ($location = $this->resolveLocationLabel($appointment)) {
             $lines[] = $location['label'] . ': ' . $location['value'];
         }
 
@@ -228,6 +230,41 @@ class AppointmentBookingNotifier
         }
 
         return implode("\n", $lines);
+    }
+
+    protected function resolveFamilyLocationLines(Appointment $appointment): array
+    {
+        $details = collect($appointment->family_pet_assignment_details)
+            ->map(function ($detail) {
+                $kennelName = trim((string) ($detail['kennel_name'] ?? ''));
+                $roomName = trim((string) ($detail['room_name'] ?? ''));
+
+                return [
+                    'pet_name' => trim((string) ($detail['pet_name'] ?? '')),
+                    'label' => $kennelName !== '' ? 'Kennel' : 'Room',
+                    'value' => $kennelName !== '' ? $kennelName : $roomName,
+                ];
+            })
+            ->filter(fn ($detail) => $detail['value'] !== '')
+            ->values();
+
+        if ($details->isEmpty()) {
+            return [];
+        }
+
+        $distinct = $details->unique(fn ($detail) => $detail['label'] . '|' . $detail['value']);
+
+        // All pets share the same location: keep the single-line format.
+        if ($distinct->count() === 1) {
+            $only = $distinct->first();
+
+            return [$only['label'] . ': ' . $only['value']];
+        }
+
+        return $details
+            ->map(fn ($detail) => ($detail['pet_name'] !== '' ? $detail['pet_name'] . ' - ' : '')
+                . $detail['label'] . ': ' . $detail['value'])
+            ->all();
     }
 
     protected function buildStaffConfirmationMessage(Appointment $appointment): string
