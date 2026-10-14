@@ -21,161 +21,81 @@
 </div>
 <div class="mt-3">
   @include('layouts.alerts')
-  <div class="mt-3 grid grid-cols-1 gap-4 xl:grid-cols-5 2xl:grid-cols-10">
-    <div class="xl:col-span-2 2xl:col-span-3">
-      <div class="card bg-base-100 card-border">
-        <div class="card-body">
-          <div class="card-title" id="demo_form_title">Create Demo Account</div>
-          <input type="hidden" id="demo_account_id" value="">
-
-          <div class="fieldset">
-            <p class="text-sm font-medium mt-2">Facility Information</p>
-            <div class="space-y-1 mt-2">
-              <label class="fieldset-label" for="facility_name">Facility Name*</label>
-              <input class="input w-full" id="facility_name" type="text" placeholder="e.g. Happy Paws Resort" />
-            </div>
-
-            <p class="text-sm font-medium mt-5">Available Services</p>
-            <p class="text-base-content/70 text-xs mt-1">Select the services this facility should see in its demo environment.</p>
-            <div class="mt-2 grid grid-cols-2 gap-2" id="demo_services">
-              @forelse ($services as $service)
-              <label class="flex items-center gap-2 text-sm">
-                <input class="checkbox checkbox-sm demo-service" type="checkbox" value="{{ $service->id }}" />
-                {{ $service->name }}
-              </label>
-              @empty
-              <p class="text-base-content/60 text-sm col-span-2">No primary services are available.</p>
-              @endforelse
-            </div>
-
-            <p class="text-sm font-medium mt-5">Demo Login Credentials</p>
-            <div class="space-y-1 mt-2">
-              <label class="fieldset-label" for="contact_person">Contact Person*</label>
-              <input class="input w-full" id="contact_person" type="text" placeholder="" />
-            </div>
-            <div class="space-y-1 mt-2">
-              <label class="fieldset-label" for="login_email">Login Email*</label>
-              <input class="input w-full" id="login_email" type="email" placeholder="" autocomplete="off" />
-            </div>
-            <div class="space-y-1 mt-2">
-              <label class="fieldset-label" for="login_password" id="password_label">Password*</label>
-              <label class="input w-full focus:outline-0">
-                <input class="grow focus:outline-0" id="login_password" type="password" placeholder="" autocomplete="new-password" />
-                <label class="swap btn btn-xs btn-ghost btn-circle text-base-content/60">
-                  <input type="checkbox" aria-label="Show password" data-password="login_password" id="login_password_toggle" />
-                  <span class="iconify lucide--eye swap-off size-4"></span>
-                  <span class="iconify lucide--eye-off swap-on size-4"></span>
-                </label>
-              </label>
-              <p class="text-base-content/60 text-xs" id="password_hint" style="display:none;">Leave blank to keep the current password.</p>
-            </div>
-
-            <p class="text-sm font-medium mt-5">Account Access</p>
-            <div class="mt-2 space-y-2">
-              <label class="flex items-center gap-2 text-sm">
-                <input class="radio radio-sm" type="radio" name="demo_status" value="active" checked />
-                <span><span class="font-medium">Active</span> — Facility can log in</span>
-              </label>
-              <label class="flex items-center gap-2 text-sm">
-                <input class="radio radio-sm" type="radio" name="demo_status" value="inactive" />
-                <span><span class="font-medium">Inactive</span> — Login is blocked</span>
-              </label>
-            </div>
-          </div>
-          <div class="mt-5 flex justify-end gap-3">
-            <button class="btn btn-ghost btn-sm" id="cancel_btn" onclick="resetForm()">Cancel</button>
-            <button class="btn btn-sm btn-primary gap-1" onclick="saveDemoAccount()" id="save_btn">
-              <span class="loading loading-spinner size-3.5" style="display:none;"></span>
-              <span class="btn-text">Save</span>
-            </button>
-          </div>
+  <div class="card bg-base-100 shadow mt-3">
+    <div class="card-body p-0">
+      <div class="flex items-center justify-between px-5 pt-5">
+        <div class="inline-flex items-center gap-3">
+          <label class="input input-sm">
+            <span class="iconify lucide--search text-base-content/80 size-3.5"></span>
+            <input class="w-24 sm:w-36" placeholder="Search demo accounts" aria-label="Search demo accounts" type="search" value="{{ $search }}" onkeydown="handleSearch(event)"/>
+          </label>
         </div>
+        <a aria-label="Create demo account" class="btn btn-primary btn-sm max-sm:btn-square" href="{{ route('add-demo-account') }}">
+          <span class="iconify lucide--plus size-4"></span>
+          <span class="hidden sm:inline">New Demo Account</span>
+        </a>
       </div>
-    </div>
-    <div class="xl:col-span-3 2xl:col-span-7">
-      <div class="card bg-base-100 shadow">
-        <div class="card-body p-0">
-          <div class="flex items-center justify-between px-5 pt-5">
-            <div class="inline-flex items-center gap-3">
-              <label class="input input-sm">
-                <span class="iconify lucide--search text-base-content/80 size-3.5"></span>
-                <input class="w-24 sm:w-36" placeholder="Search demo accounts" aria-label="Search demo accounts" type="search" value="{{ $search }}" onkeydown="handleSearch(event)"/>
-              </label>
-            </div>
-          </div>
-          <div class="mt-4 overflow-auto">
-            <table class="table">
-              <thead>
-                <tr>
-                  <th style="text-align: left">Facility Name</th>
-                  <th>Contact Person</th>
-                  <th>Login Email</th>
-                  <th>Available Services</th>
-                  <th>Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                @forelse ($demoAccounts as $demoAccount)
-                @php
-                  $demoAccountData = [
-                    'id' => $demoAccount->id,
-                    'facility_name' => $demoAccount->facility_name,
-                    'contact_person' => optional($demoAccount->user)->name,
-                    'email' => optional($demoAccount->user)->email,
-                    'status' => $demoAccount->status,
-                    'services' => $demoAccount->enabledServices->pluck('id')->values(),
-                  ];
-                @endphp
-                <tr class="hover:bg-base-200/40 *:text-nowrap">
-                  <td style="text-align: left">{{ $demoAccount->facility_name }}</td>
-                  <td>{{ optional($demoAccount->user)->name }}</td>
-                  <td>{{ optional($demoAccount->user)->email }}</td>
-                  <td style="white-space: normal">
-                    @forelse ($demoAccount->enabledServices as $service)
-                    <span class="badge badge-sm badge-soft badge-primary my-0.5">{{ $service->name }}</span>
-                    @empty
-                    <span class="text-base-content/60 text-sm">None</span>
-                    @endforelse
-                  </td>
-                  <td>
-                    @if ($demoAccount->isActive())
-                    <span class="badge badge-sm badge-soft badge-success">Active</span>
-                    @else
-                    <span class="badge badge-sm badge-soft badge-error">Inactive</span>
-                    @endif
-                  </td>
-                  <td>
-                    <div class="inline-flex w-fit">
-                      <button class="btn btn-square btn-primary btn-outline btn-xs border-transparent" title="Edit" onclick='editDemoAccount(@json($demoAccountData))'>
-                        <span class="iconify lucide--pencil" style="font-size: 0.875rem;"></span>
-                      </button>
-                      @if ($demoAccount->isActive())
-                      <button class="btn btn-square btn-error btn-outline btn-xs border-transparent" title="Deactivate" onclick="openStatusModal({{ $demoAccount->id }}, 'inactive')">
-                        <span class="iconify lucide--ban" style="font-size: 0.875rem;"></span>
-                      </button>
-                      @else
-                      <button class="btn btn-square btn-success btn-outline btn-xs border-transparent" title="Activate" onclick="openStatusModal({{ $demoAccount->id }}, 'active')">
-                        <span class="iconify lucide--check" style="font-size: 0.875rem;"></span>
-                      </button>
-                      @endif
-                      <button class="btn btn-square btn-error btn-outline btn-xs border-transparent" title="Delete" onclick='openDeleteModal({{ $demoAccount->id }}, @json($demoAccount->facility_name))'>
-                        <span class="iconify lucide--trash" style="font-size: 0.875rem;"></span>
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+      <div class="mt-4 overflow-auto">
+        <table class="table">
+          <thead>
+            <tr>
+              <th style="text-align: left">Facility Name</th>
+              <th>Username</th>
+              <th>Email</th>
+              <th>Available Services</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            @forelse ($demoAccounts as $demoAccount)
+            <tr class="hover:bg-base-200/40 *:text-nowrap">
+              <td style="text-align: left">{{ $demoAccount->facility_name }}</td>
+              <td>{{ optional($demoAccount->user)->name }}</td>
+              <td>{{ optional($demoAccount->user)->email }}</td>
+              <td style="white-space: normal">
+                @forelse ($demoAccount->enabledServices as $service)
+                <span class="badge badge-sm badge-soft badge-primary my-0.5">{{ $service->name }}</span>
                 @empty
-                <tr>
-                  <td colspan="6" class="text-base-content/60">No demo accounts yet.</td>
-                </tr>
+                <span class="text-base-content/60 text-sm">None</span>
                 @endforelse
-              </tbody>
-            </table>
-          </div>
-          {{ $demoAccounts->links('layouts.pagination', ['items' => $demoAccounts]) }}
-        </div>
+              </td>
+              <td>
+                @if ($demoAccount->isActive())
+                <span class="badge badge-sm badge-soft badge-success">Active</span>
+                @else
+                <span class="badge badge-sm badge-soft badge-error">Inactive</span>
+                @endif
+              </td>
+              <td>
+                <div class="inline-flex w-fit">
+                  <a class="btn btn-square btn-primary btn-outline btn-xs border-transparent" title="Edit" href="{{ route('edit-demo-account', ['id' => $demoAccount->id]) }}">
+                    <span class="iconify lucide--pencil" style="font-size: 0.875rem;"></span>
+                  </a>
+                  @if ($demoAccount->isActive())
+                  <button class="btn btn-square btn-error btn-outline btn-xs border-transparent" title="Deactivate" onclick="openStatusModal({{ $demoAccount->id }}, 'inactive')">
+                    <span class="iconify lucide--ban" style="font-size: 0.875rem;"></span>
+                  </button>
+                  @else
+                  <button class="btn btn-square btn-success btn-outline btn-xs border-transparent" title="Activate" onclick="openStatusModal({{ $demoAccount->id }}, 'active')">
+                    <span class="iconify lucide--check" style="font-size: 0.875rem;"></span>
+                  </button>
+                  @endif
+                  <button class="btn btn-square btn-error btn-outline btn-xs border-transparent" title="Delete" onclick='openDeleteModal({{ $demoAccount->id }}, @json($demoAccount->facility_name))'>
+                    <span class="iconify lucide--trash" style="font-size: 0.875rem;"></span>
+                  </button>
+                </div>
+              </td>
+            </tr>
+            @empty
+            <tr>
+              <td colspan="6" class="text-base-content/60">No demo accounts yet.</td>
+            </tr>
+            @endforelse
+          </tbody>
+        </table>
       </div>
+      {{ $demoAccounts->links('layouts.pagination', ['items' => $demoAccounts]) }}
     </div>
   </div>
 </div>
@@ -232,7 +152,6 @@
 @endsection
 
 @section('page-js')
-<script src="{{ asset('src/js/components/password-field.js') }}"></script>
 <script>
   function errorMessage(xhr) {
     if (xhr.responseJSON && xhr.responseJSON.errors) {
@@ -248,81 +167,6 @@
     $('#success_message').text(message);
     success_modal.addEventListener('close', () => window.location.reload(), { once: true });
     success_modal.showModal();
-  }
-
-  function setSaving(saving) {
-    $('#save_btn .loading').css('display', saving ? 'inline-block' : 'none');
-    $('#save_btn .btn-text').text(saving ? 'Loading' : 'Save');
-    $('#save_btn').prop('disabled', saving);
-    $('#cancel_btn').prop('disabled', saving);
-  }
-
-  function saveDemoAccount() {
-    const demoAccountId = $('#demo_account_id').val();
-    const data = {
-      demo_account_id: demoAccountId,
-      facility_name: $('#facility_name').val().trim(),
-      services: $('.demo-service:checked').map(function() { return $(this).val(); }).get(),
-      contact_person: $('#contact_person').val().trim(),
-      email: $('#login_email').val().trim(),
-      password: $('#login_password').val(),
-      status: $('input[name="demo_status"]:checked').val(),
-    };
-
-    if (!data.facility_name || !data.contact_person || !data.email || (!demoAccountId && !data.password)) {
-      $('#alert_message').text('Please fill in all required fields.');
-      alert_modal.showModal();
-      return;
-    }
-
-    setSaving(true);
-
-    $.ajax({
-      url: demoAccountId ? '{{ route("update-demo-account") }}' : '{{ route("create-demo-account") }}',
-      method: 'POST',
-      data: data,
-      headers: {
-        'X-CSRF-TOKEN': '{{ csrf_token() }}'
-      },
-      success: function(response) {
-        setSaving(false);
-        showSuccessAndReload(response.message);
-      },
-      error: function(xhr) {
-        setSaving(false);
-        $('#alert_message').text(errorMessage(xhr));
-        alert_modal.showModal();
-      }
-    });
-  }
-
-  function resetForm() {
-    $('#demo_account_id').val('');
-    $('#facility_name').val('');
-    $('.demo-service').prop('checked', false);
-    $('#contact_person').val('');
-    $('#login_email').val('');
-    $('#login_password').val('').attr('type', 'password');
-    $('#login_password_toggle').prop('checked', false);
-    $('input[name="demo_status"][value="active"]').prop('checked', true);
-    $('#password_label').text('Password*');
-    $('#password_hint').hide();
-    $('#demo_form_title').text('Create Demo Account');
-  }
-
-  function editDemoAccount(demoAccount) {
-    resetForm();
-    $('#demo_account_id').val(demoAccount.id);
-    $('#facility_name').val(demoAccount.facility_name);
-    (demoAccount.services || []).forEach(function(serviceId) {
-      $('.demo-service[value="' + serviceId + '"]').prop('checked', true);
-    });
-    $('#contact_person').val(demoAccount.contact_person || '');
-    $('#login_email').val(demoAccount.email || '');
-    $('input[name="demo_status"][value="' + demoAccount.status + '"]').prop('checked', true);
-    $('#password_label').text('Password');
-    $('#password_hint').show();
-    $('#demo_form_title').text('Edit Demo Account');
   }
 
   function openStatusModal(id, status) {
@@ -381,10 +225,6 @@
         'X-CSRF-TOKEN': '{{ csrf_token() }}'
       },
       success: function(response) {
-        // The form may still hold the deleted account
-        if ($('#demo_account_id').val() === id) {
-          resetForm();
-        }
         showSuccessAndReload(response.message);
       },
       error: function(xhr) {

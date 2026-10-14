@@ -127,6 +127,8 @@ Route::middleware(['auth', 'demo.access'])->group(function () {
 
         // Demo accounts (Super Admin only, checked in the controller)
         Route::get('/demo-accounts', 'listDemoAccounts')->name('demo-accounts');
+        Route::get('/demo-account/add', 'addDemoAccount')->name('add-demo-account');
+        Route::get('/demo-account/edit/{id}', 'editDemoAccount')->name('edit-demo-account');
         Route::post('/demo-account/create', 'createDemoAccount')->name('create-demo-account');
         Route::post('/demo-account/update', 'updateDemoAccount')->name('update-demo-account');
         Route::post('/demo-account/status', 'updateDemoAccountStatus')->name('update-demo-account-status');

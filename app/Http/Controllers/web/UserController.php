@@ -397,21 +397,21 @@ class UserController extends Controller
                 'distinct',
                 Rule::exists('services', 'id')->where('level', 'primary'),
             ],
-            'contact_person' => 'required|string|max:255',
+            'username' => 'required|string|max:255',
             'email' => [
                 'required',
                 'email',
                 'max:255',
                 Rule::unique('users', 'email')->ignore($demoAccount?->user_id),
             ],
-            'password' => $demoAccount ? 'nullable|string' : 'required|string',
+            'password' => $demoAccount ? 'nullable|string|confirmed' : 'required|string|confirmed',
             'status' => 'required|in:active,inactive',
         ];
     }
 
     private function saveDemoAccountUser(User $user, DemoAccount $demoAccount, Request $request): void
     {
-        $user->name = $request->contact_person;
+        $user->name = $request->username;
         $user->email = $request->email;
         if ($request->filled('password')) {
             $user->password = bcrypt($request->password);
@@ -421,7 +421,7 @@ class UserController extends Controller
         $user->demo_account_id = $demoAccount->id;
         $user->save();
 
-        $nameParts = preg_split('/\s+/', trim($request->contact_person), 2);
+        $nameParts = preg_split('/\s+/', trim($request->username), 2);
         $profile = Profile::where('user_id', $user->id)->first() ?? new Profile();
         $profile->user_id = $user->id;
         $profile->first_name = $nameParts[0] ?? '';
@@ -451,10 +451,34 @@ class UserController extends Controller
             ->paginate($perPage)
             ->withQueryString();
 
-        // Every primary service, loaded from the database (never hardcoded)
-        $services = Service::where('level', 'primary')->orderBy('name')->get();
+        return view('demo-accounts.index', compact('demoAccounts', 'search'));
+    }
 
-        return view('demo-accounts.index', compact('demoAccounts', 'services', 'search'));
+    /**
+     * Every primary service, loaded from the database (never hardcoded).
+     */
+    private function demoAccountServices()
+    {
+        return Service::where('level', 'primary')->orderBy('name')->get();
+    }
+
+    public function addDemoAccount()
+    {
+        $this->ensureSuperAdmin();
+
+        $services = $this->demoAccountServices();
+
+        return view('demo-accounts.create', compact('services'));
+    }
+
+    public function editDemoAccount($id)
+    {
+        $this->ensureSuperAdmin();
+
+        $demoAccount = DemoAccount::with(['user', 'enabledServices'])->findOrFail($id);
+        $services = $this->demoAccountServices();
+
+        return view('demo-accounts.update', compact('demoAccount', 'services'));
     }
 
     public function createDemoAccount(Request $request)
@@ -464,10 +488,10 @@ class UserController extends Controller
 
         $role = $this->demoAccountRole();
         if (!$role) {
-            return response()->json([
+            return redirect()->back()->withInput()->with([
                 'status' => 'fail',
                 'message' => 'No non-owner role is available for the demo login.',
-            ], 422);
+            ]);
         }
 
         try {
@@ -489,13 +513,13 @@ class UserController extends Controller
         } catch (Exception $e) {
             Log::error('Demo account creation failed: ' . $e->getMessage());
 
-            return response()->json([
+            return redirect()->back()->withInput()->with([
                 'status' => 'fail',
                 'message' => 'Failed to create the demo account. Please try again.',
-            ], 500);
+            ]);
         }
 
-        return response()->json([
+        return redirect()->route('demo-accounts')->with([
             'status' => 'success',
             'message' => 'Demo account created successfully!',
         ]);
@@ -536,13 +560,13 @@ class UserController extends Controller
         } catch (Exception $e) {
             Log::error('Demo account update failed: ' . $e->getMessage());
 
-            return response()->json([
+            return redirect()->back()->withInput()->with([
                 'status' => 'fail',
                 'message' => 'Failed to update the demo account. Please try again.',
-            ], 500);
+            ]);
         }
 
-        return response()->json([
+        return redirect()->route('demo-accounts')->with([
             'status' => 'success',
             'message' => 'Demo account updated successfully!',
         ]);
