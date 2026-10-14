@@ -13,12 +13,49 @@ use App\Models\Service;
 use App\Models\GroupClass;
 use App\Models\Package;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Validation\ValidationException;
 
 class ServiceController extends Controller
 {
+    /**
+     * Categories a user works with: demo users only see the categories of their enabled services.
+     */
+    private function visibleCategories()
+    {
+        $user = auth()->user();
+
+        return ServiceCategory::when($user->isDemo(), function ($query) use ($user) {
+            $query->whereIn('id', $user->enabledDemoCategoryIds());
+        })->get();
+    }
+
+    /**
+     * Demo users may only create or delete secondary services under an enabled category.
+     */
+    private function ensureDemoSecondaryService($level, $categoryId): void
+    {
+        $user = auth()->user();
+
+        if (!$user->isDemo()) {
+            return;
+        }
+
+        if ($level !== 'secondary') {
+            throw ValidationException::withMessages([
+                'level' => 'Demo accounts can only add or remove secondary services.',
+            ]);
+        }
+
+        if (!in_array((int) $categoryId, $user->enabledDemoCategoryIds(), true)) {
+            throw ValidationException::withMessages([
+                'category' => 'The selected category is not available for this demo account.',
+            ]);
+        }
+    }
+
     public function listCategories(Request $request)
     {
-        $categories = ServiceCategory::all();
+        $categories = $this->visibleCategories();
         return view('services.category', compact('categories'));
     }
 
@@ -128,7 +165,7 @@ class ServiceController extends Controller
 
     public function addService()
     {
-        $categories = ServiceCategory::all();
+        $categories = $this->visibleCategories();
         return view('services.create', compact('categories'));
     }
 
@@ -141,6 +178,7 @@ class ServiceController extends Controller
             'level' => 'required|in:primary,secondary',
             'temp_file' => 'nullable|string',
         ]);
+        $this->ensureDemoSecondaryService($request->level, $request->category);
 
         $categoryId = $request->category;
         $category = ServiceCategory::find($categoryId);
@@ -172,17 +210,11 @@ class ServiceController extends Controller
                 $service->duration = $request->duration;
             }
         } else if (isDaycareService($service)) {
-            $daycarePrice = $request->input('price_daycare');
-            $daycareDuration = $request->input('duration_daycare');
+            $service->price_small = $request->price_half_daycare;
+            $service->price_medium = $request->price_full_daycare;
 
-            $service->price = $daycarePrice;
-            $service->duration = $daycareDuration;
-
-            // Mirror daycare values to size-based columns for backward compatibility in existing flows.
-            $service->price_small = $daycarePrice;
-            $service->price_medium = $daycarePrice;
-            $service->duration_small = $daycareDuration;
-            $service->duration_medium = $daycareDuration;
+            $service->duration_small = $request->duration_half_daycare;
+            $service->duration_medium = $request->duration_full_daycare;
         } else if (isPrivateTrainingService($service)) {
             $service->price_small = $request->price_half_training;
             $service->price_medium = $request->price_one_training;
@@ -233,7 +265,10 @@ class ServiceController extends Controller
     public function editService($id)
     {
         $service = Service::findOrFail($id);
-        $categories = ServiceCategory::all();
+        // Demo users cannot move a service to another category
+        $categories = auth()->user()->isDemo()
+            ? ServiceCategory::whereKey($service->category_id)->get()
+            : ServiceCategory::all();
         $categoryText = $service->category ? Str::lower($service->category->name) : '';
         return view('services.update', compact('service', 'categories', 'categoryText'));
     }
@@ -267,10 +302,19 @@ class ServiceController extends Controller
 
         $request->validate($validationRules);
 
+        $service = Service::findOrFail($request->service_id);
+
+        // Demo users edit their own services (price, duration, ...) but keep category and level
+        if (auth()->user()->isDemo()) {
+            $request->merge([
+                'category' => $service->category_id,
+                'level' => $service->level,
+            ]);
+        }
+
         $categoryId = $request->category;
         $category = ServiceCategory::find($categoryId);
 
-        $service = Service::find($request->service_id);
         $service->name = $request->service_name;
         $service->description = $request->description;
         $service->category_id = $categoryId;
@@ -309,17 +353,11 @@ class ServiceController extends Controller
                 $service->duration = $request->duration;
             }
         } else if (isDaycareService($service)) {
-            $daycarePrice = $request->input('price_daycare');
-            $daycareDuration = $request->input('duration_daycare');
+            $service->price_small = $request->price_half_daycare;
+            $service->price_medium = $request->price_full_daycare;
 
-            $service->price = $daycarePrice;
-            $service->duration = $daycareDuration;
-
-            // Mirror daycare values to size-based columns for backward compatibility in existing flows.
-            $service->price_small = $daycarePrice;
-            $service->price_medium = $daycarePrice;
-            $service->duration_small = $daycareDuration;
-            $service->duration_medium = $daycareDuration;
+            $service->duration_small = $request->duration_half_daycare;
+            $service->duration_medium = $request->duration_full_daycare;
         } else if (isPrivateTrainingService($service)) {
             $service->price_small = $request->price_half_training;
             $service->price_medium = $request->price_one_training;
@@ -418,7 +456,8 @@ class ServiceController extends Controller
             'service_id' => 'required|exists:services,id',
         ]);
 
-        $service = Service::find($request->service_id);
+        $service = Service::findOrFail($request->service_id);
+        $this->ensureDemoSecondaryService($service->level, $service->category_id);
 
         // Delete associated files
         if ($service->icon && Storage::disk('public')->exists('services/' . $service->icon)) {

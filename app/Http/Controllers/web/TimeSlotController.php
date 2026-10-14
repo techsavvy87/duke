@@ -14,6 +14,19 @@ use App\Models\HolidayService;
 
 class TimeSlotController extends Controller
 {
+    /**
+     * Time slots can only be created for services of the user's own environment
+     * (for demo users: their enabled services).
+     */
+    private function ensureVisibleService($serviceId): void
+    {
+        if (!Service::whereKey($serviceId)->exists()) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'service' => 'The selected service is not available.',
+            ]);
+        }
+    }
+
     public function listTimeSlots(Request $request)
     {
         // Delete all TimeSlot records created until yesterday
@@ -221,6 +234,7 @@ class TimeSlotController extends Controller
             'status' => 'required|in:available,blocked,full',
             'daycare_type' => 'nullable|in:half,full',
         ]);
+        $this->ensureVisibleService($request->service);
 
         $timeSlot = new TimeSlot;
         $timeSlot->service_id = $request->service;
@@ -269,6 +283,7 @@ class TimeSlotController extends Controller
             'status' => 'required|in:available,blocked,full',
             'daycare_type' => 'nullable|in:half,full',
         ]);
+        $this->ensureVisibleService($request->service);
 
         $timeSlot = TimeSlot::findOrFail($request->timeslot_id);
 

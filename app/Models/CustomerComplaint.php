@@ -6,6 +6,11 @@ use Illuminate\Database\Eloquent\Model;
 
 class CustomerComplaint extends Model
 {
+    protected static function booted(): void
+    {
+        registerDemoEnvironmentScope(static::class);
+    }
+
     protected $fillable = [
         'customer_id',
         'description',

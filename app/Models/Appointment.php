@@ -7,6 +7,11 @@ use App\Models\Room;
 
 class Appointment extends Model
 {
+    protected static function booted(): void
+    {
+        registerDemoEnvironmentScope(static::class);
+    }
+
     protected $casts = [
         'metadata' => 'array',
         'apply_late_fee' => 'boolean',

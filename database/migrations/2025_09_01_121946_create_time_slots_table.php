@@ -25,6 +25,8 @@ return new class extends Migration
             $table->unsignedTinyInteger('capacity')->default(1);
             $table->unsignedTinyInteger('booked_count')->default(0);
             $table->enum('status', ['available', 'blocked', 'full'])->default('available');
+            // Demo environment (NULL = real facility); foreign key added by create_demo_accounts_table
+            $table->foreignId('demo_account_id')->nullable();
             $table->timestamps();
         });
     }

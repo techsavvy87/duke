@@ -23,6 +23,8 @@ return new class extends Migration
             $table->string('stripe_transaction_id')->nullable();
             $table->text('notes')->nullable();
             $table->string('last_payment_id')->nullable();
+            // Demo environment (NULL = real facility); foreign key added by create_demo_accounts_table
+            $table->foreignId('demo_account_id')->nullable();
             $table->timestamps();
         });
     }

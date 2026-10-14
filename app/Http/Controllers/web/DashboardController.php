@@ -452,6 +452,10 @@ class DashboardController extends Controller
     {
         $appointment = Appointment::with(['customer.profile', 'customer.appointmentCancellations.service', 'customer.appointmentCancellations.cancelledBy', 'pet.breed', 'pet.color', 'pet.coatType', 'pet.vaccinations', 'pet.certificates', 'service.category', 'staff.profile', 'catRoom', 'kennel'])
             ->find($id);
+        // Other environments' appointments and disabled demo services are not reachable
+        if (!$appointment || !auth()->user()->canAccessService($appointment->service_id)) {
+            return redirect()->route('dashboard');
+        }
         $dbEstimatedPrice = $appointment->estimated_price ?? 0;
 
         $checkedIn = Checkin::where('appointment_id', $appointment->id)->first();

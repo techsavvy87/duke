@@ -35,6 +35,10 @@ return new class extends Migration
             $table->foreignId('category_id')->constrained('service_categories')->onDelete('restrict');
             $table->enum('level', ['primary', 'secondary'])->default('primary');
             $table->enum('status', ['active', 'inactive'])->default('active');
+            // Demo environment (NULL = real facility); foreign key added by create_demo_accounts_table
+            $table->foreignId('demo_account_id')->nullable();
+            // Real service a demo account's copy was made from
+            $table->foreignId('source_service_id')->nullable()->constrained('services')->nullOnDelete();
             $table->timestamps();
         });
     }

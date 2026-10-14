@@ -37,6 +37,17 @@ class AuthController extends Controller
                     'message' => 'Required administrator access.'
                 ]);
 
+            if (Auth::user()->demoAccessBlocked()) {
+                Auth::logout();
+                $request->session()->invalidate();
+                $request->session()->regenerateToken();
+
+                return back()->with([
+                    'status' => 'fail',
+                    'message' => 'This demo account is inactive.'
+                ]);
+            }
+
             return redirect()->route('dashboard');
         }
 

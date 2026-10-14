@@ -6,9 +6,15 @@ use Illuminate\Database\Eloquent\Model;
 
 class Invoice extends Model
 {
+    protected static function booted(): void
+    {
+        registerDemoEnvironmentScope(static::class);
+    }
+
     public static function generateInvoiceNumber()
     {
-        $latestInvoice = self::latest()->first();
+        // Invoice numbers are unique across all environments, so the sequence ignores the demo scope
+        $latestInvoice = self::withoutGlobalScope('demo_environment')->latest()->first();
         if ($latestInvoice) {
             $lastNumber = intval(substr($latestInvoice->invoice_number, 3));
             return 'INV' . str_pad($lastNumber + 1, 6, '0', STR_PAD_LEFT);

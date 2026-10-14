@@ -29,6 +29,7 @@ class AdminPaymentController extends Controller
 
         $payments = DB::query()
             ->fromSub($this->buildPaymentHistoryQuery(), 'payment_history')
+            ->tap(fn ($query) => $this->whereCurrentEnvironment($query, 'demo_account_id'))
             ->when($paymentType !== '', function ($query) use ($paymentType) {
                 $query->where('payment_type', $paymentType);
             })
@@ -174,6 +175,19 @@ class AdminPaymentController extends Controller
         ]);
     }
 
+    /**
+     * Raw payment history queries bypass the model scopes, so limit them to the
+     * authenticated user's environment (real facility or their demo account).
+     */
+    private function whereCurrentEnvironment($query, string $column)
+    {
+        $demoAccountId = currentDemoAccountId();
+
+        return $demoAccountId === null
+            ? $query->whereNull($column)
+            : $query->where($column, $demoAccountId);
+    }
+
     private function canAccessFinancials(): bool
     {
         return hasPermission(14, 'can_read') || hasPermission(14, 'can_create');
@@ -262,7 +276,8 @@ class AdminPaymentController extends Controller
                     ELSE COALESCE(t.stripe_transaction_id, t.last_payment_id)
                 END as stripe_payment_id,
                 t.authorization_code as authorization_code,
-                COALESCE(t.tran_date, i.paid_at, t.created_at) as sort_at
+                COALESCE(t.tran_date, i.paid_at, t.created_at) as sort_at,
+                t.demo_account_id as demo_account_id
             ");
 
         $paymentLinks = DB::table('payment_links as pl')
@@ -327,7 +342,8 @@ class AdminPaymentController extends Controller
                 COALESCE(pl.completed_at, pl.updated_at, pl.created_at) as payment_date,
                 COALESCE(pl.stripe_transaction_id, pl.stripe_payment_intent_id) as stripe_payment_id,
                 NULL as authorization_code,
-                COALESCE(pl.completed_at, pl.updated_at, pl.created_at) as sort_at
+                COALESCE(pl.completed_at, pl.updated_at, pl.created_at) as sort_at,
+                pl.demo_account_id as demo_account_id
             ");
 
         $legacyInvoices = DB::table('invoices as i')
@@ -379,7 +395,8 @@ class AdminPaymentController extends Controller
                 COALESCE(i.paid_at, i.updated_at, i.created_at) as payment_date,
                 NULL as stripe_payment_id,
                 NULL as authorization_code,
-                COALESCE(i.paid_at, i.updated_at, i.created_at) as sort_at
+                COALESCE(i.paid_at, i.updated_at, i.created_at) as sort_at,
+                i.demo_account_id as demo_account_id
             ");
 
         return $transactions

@@ -20,7 +20,7 @@ Route::post('/forgot/password', [AuthController::class, 'forgotPassword']);
 Route::post('/reset/password', [AuthController::class, 'resetPassword']);
 Route::post('/contact', [ContactController::class, 'submit']);
 
-Route::middleware(['auth:sanctum'])->group(function () {
+Route::middleware(['auth:sanctum', 'demo.access'])->group(function () {
   Route::get('/logout', [AuthController::class, 'logout']);
   Route::post('/password/update', [AuthController::class, 'updatePassword']);
 

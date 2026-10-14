@@ -6,6 +6,11 @@ use Illuminate\Database\Eloquent\Model;
 
 class TimeSlot extends Model
 {
+    protected static function booted(): void
+    {
+        registerDemoEnvironmentScope(static::class);
+    }
+
     protected $fillable = [
         'service_id',
         'staff_id',

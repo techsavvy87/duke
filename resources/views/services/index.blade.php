@@ -149,7 +149,7 @@
                     <span class="iconify lucide--pencil text-base-content/80 size-4"></span>
                   </a>
                   @endif
-                  @if (hasPermission(12, 'can_delete'))
+                  @if (hasPermission(12, 'can_delete') && !(Auth::user()->isDemo() && $service->level === 'primary'))
                   <button onclick="confirmDelete({{ $service }})" class="btn btn-square btn-error btn-outline btn-sm border-transparent">
                     <span class="iconify lucide--trash size-4"></span>
                   </button>

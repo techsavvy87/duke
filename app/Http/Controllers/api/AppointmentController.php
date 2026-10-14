@@ -50,6 +50,13 @@ class AppointmentController extends Controller
             ], 200);
         }
 
+        if (!Auth::user()->canAccessService($service)) {
+            return response()->json([
+                'status' => false,
+                'message' => 'The selected service is not available for this account.',
+            ], 403);
+        }
+
         // Pet vaccine status check
         if ($pet->vaccine_status === 'approved') {
             $vaccineStatus = true;
@@ -250,6 +257,13 @@ class AppointmentController extends Controller
 
     public function list($serviceId)
     {
+        if (!Auth::user()->canAccessService($serviceId)) {
+            return response()->json([
+                'status' => false,
+                'message' => 'The selected service is not available for this account.',
+            ], 403);
+        }
+
         $appointments = Appointment::where('service_id', $serviceId)
             ->where('customer_id', Auth::id())
             ->with('pet', 'staff')

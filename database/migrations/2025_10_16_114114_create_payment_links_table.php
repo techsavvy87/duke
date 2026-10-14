@@ -25,6 +25,8 @@ return new class extends Migration
             $table->string('payment_method')->nullable();
             $table->string('stripe_transaction_id')->nullable();
             $table->text('error_message')->nullable();
+            // Demo environment (NULL = real facility); foreign key added by create_demo_accounts_table
+            $table->foreignId('demo_account_id')->nullable();
             $table->timestamps();
 
             $table->foreign('invoice_id')->references('id')->on('invoices')->onDelete('cascade');

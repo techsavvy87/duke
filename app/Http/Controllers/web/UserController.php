@@ -6,11 +6,17 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Carbon\Carbon;
 use Exception;
 use App\Models\User;
 use App\Models\Role;
 use App\Models\Profile;
+use App\Models\Service;
+use App\Models\DemoAccount;
 
 class UserController extends Controller
 {
@@ -30,18 +36,18 @@ class UserController extends Controller
                     });
             })->whereDoesntHave('roles', function ($query) {
                 $query->where('title', 'customer');
-            })->paginate($perPage);
+            })->when(auth()->user()->isDemo(), fn ($query) => $this->excludeOwners($query))->paginate($perPage);
         } else {
             $users = User::whereDoesntHave('roles', function ($query) {
                         $query->where('title', 'customer');
-                    })->paginate($perPage);
+                    })->when(auth()->user()->isDemo(), fn ($query) => $this->excludeOwners($query))->paginate($perPage);
         }
         return view('users.index', compact('search', 'users'));
     }
 
     public function addUser()
     {
-        $roles = Role::all();
+        $roles = $this->assignableRoles();
         // Logic to show the user creation form
         return view('users.create', compact('roles'));
     }
@@ -100,6 +106,7 @@ class UserController extends Controller
             'phone_number_1' => 'required|string',
             'temp_file' => 'nullable|string'
         ]);
+        $this->ensureAssignableRoles($request->roles);
 
         // Create account
         $user = new User();
@@ -167,7 +174,8 @@ class UserController extends Controller
     public function editUser($id)
     {
         $user = User::findOrFail($id);
-        $roles = Role::all();
+        $this->ensureManageableUser($user);
+        $roles = $this->assignableRoles();
 
         return view('users.update', compact('user', 'roles'));
     }
@@ -186,8 +194,10 @@ class UserController extends Controller
             'temp_file' => 'nullable|string',
             'current_avatar' => 'nullable|string',
         ]);
+        $this->ensureAssignableRoles($request->roles);
 
         $user = User::findOrFail($request->user_id);
+        $this->ensureManageableUser($user);
 
         // Update user account information
         $user->name = $request->username;
@@ -288,6 +298,7 @@ class UserController extends Controller
         ]);
 
         $user = User::findOrFail($request->user_id);
+        $this->ensureManageableUser($user);
 
         // Prevent deletion of the currently logged-in user
         if ($user->id === auth()->id()) {
@@ -311,6 +322,275 @@ class UserController extends Controller
         return redirect()->route('users')->with([
             'status' => 'success',
             'message' => 'User deleted successfully!'
+        ]);
+    }
+
+    /**
+     * Roles the authenticated user may assign. Demo users never get the Owner role.
+     */
+    private function assignableRoles()
+    {
+        return Role::when(auth()->user()->isDemo(), function ($query) {
+            $query->whereRaw('LOWER(title) != ?', ['owner']);
+        })->get();
+    }
+
+    private function ensureAssignableRoles($roleIds): void
+    {
+        if (!auth()->user()->isDemo() || empty($roleIds)) {
+            return;
+        }
+
+        $assignsOwner = Role::whereIn('id', (array) $roleIds)
+            ->whereRaw('LOWER(title) = ?', ['owner'])
+            ->exists();
+
+        if ($assignsOwner) {
+            throw ValidationException::withMessages([
+                'roles' => 'You are not allowed to assign the Owner role.',
+            ]);
+        }
+    }
+
+    private function excludeOwners($query)
+    {
+        return $query->whereDoesntHave('roles', function ($q) {
+            $q->whereRaw('LOWER(title) = ?', ['owner']);
+        });
+    }
+
+    /**
+     * Demo users can never view or change an Owner (Super Admin) account.
+     */
+    private function ensureManageableUser(User $user): void
+    {
+        if (auth()->user()->isDemo() && $user->roles->contains(fn ($role) => strtolower($role->title) === 'owner')) {
+            abort(404);
+        }
+    }
+
+    /*
+     * Demo Account Management (Super Admin only)
+     */
+
+    private function ensureSuperAdmin(): void
+    {
+        abort_unless(auth()->user()->isSuperAdmin(), 403);
+    }
+
+    /**
+     * Existing non-owner role used for the demo login.
+     */
+    private function demoAccountRole(): ?Role
+    {
+        return Role::whereRaw('LOWER(title) = ?', ['manager'])->first()
+            ?? Role::whereRaw('LOWER(title) NOT IN (?, ?)', ['owner', 'customer'])->orderBy('id')->first();
+    }
+
+    private function demoAccountRules(?DemoAccount $demoAccount = null): array
+    {
+        return [
+            'facility_name' => 'required|string|max:255',
+            'services' => 'nullable|array',
+            'services.*' => [
+                'integer',
+                'distinct',
+                Rule::exists('services', 'id')->where('level', 'primary'),
+            ],
+            'contact_person' => 'required|string|max:255',
+            'email' => [
+                'required',
+                'email',
+                'max:255',
+                Rule::unique('users', 'email')->ignore($demoAccount?->user_id),
+            ],
+            'password' => $demoAccount ? 'nullable|string' : 'required|string',
+            'status' => 'required|in:active,inactive',
+        ];
+    }
+
+    private function saveDemoAccountUser(User $user, DemoAccount $demoAccount, Request $request): void
+    {
+        $user->name = $request->contact_person;
+        $user->email = $request->email;
+        if ($request->filled('password')) {
+            $user->password = bcrypt($request->password);
+        }
+        $user->email_verified_at = $user->email_verified_at ?? Carbon::now();
+        $user->status = true;
+        $user->demo_account_id = $demoAccount->id;
+        $user->save();
+
+        $nameParts = preg_split('/\s+/', trim($request->contact_person), 2);
+        $profile = Profile::where('user_id', $user->id)->first() ?? new Profile();
+        $profile->user_id = $user->id;
+        $profile->first_name = $nameParts[0] ?? '';
+        $profile->last_name = $nameParts[1] ?? '';
+        $profile->phone_number_1 = $profile->phone_number_1 ?? '';
+        $profile->save();
+    }
+
+    public function listDemoAccounts(Request $request)
+    {
+        $this->ensureSuperAdmin();
+
+        $perPage = $request->get('per_page', 20);
+        $search = $request->get('search');
+
+        $demoAccounts = DemoAccount::with(['user', 'enabledServices'])
+            ->when(!empty($search), function ($query) use ($search) {
+                $query->where(function ($q) use ($search) {
+                    $q->where('facility_name', 'like', "%{$search}%")
+                        ->orWhereHas('user', function ($userQuery) use ($search) {
+                            $userQuery->where('name', 'like', "%{$search}%")
+                                ->orWhere('email', 'like', "%{$search}%");
+                        });
+                });
+            })
+            ->orderByDesc('id')
+            ->paginate($perPage)
+            ->withQueryString();
+
+        // Every primary service, loaded from the database (never hardcoded)
+        $services = Service::where('level', 'primary')->orderBy('name')->get();
+
+        return view('demo-accounts.index', compact('demoAccounts', 'services', 'search'));
+    }
+
+    public function createDemoAccount(Request $request)
+    {
+        $this->ensureSuperAdmin();
+        $request->validate($this->demoAccountRules());
+
+        $role = $this->demoAccountRole();
+        if (!$role) {
+            return response()->json([
+                'status' => 'fail',
+                'message' => 'No non-owner role is available for the demo login.',
+            ], 422);
+        }
+
+        try {
+            DB::transaction(function () use ($request, $role) {
+                $demoAccount = new DemoAccount();
+                $demoAccount->facility_name = $request->facility_name;
+                $demoAccount->status = $request->status;
+                $demoAccount->save();
+
+                $user = new User();
+                $this->saveDemoAccountUser($user, $demoAccount, $request);
+                $user->roles()->sync([$role->id]);
+
+                $demoAccount->user_id = $user->id;
+                $demoAccount->save();
+                $demoAccount->services()->sync($request->input('services', []));
+                $demoAccount->syncServiceCopies();
+            });
+        } catch (Exception $e) {
+            Log::error('Demo account creation failed: ' . $e->getMessage());
+
+            return response()->json([
+                'status' => 'fail',
+                'message' => 'Failed to create the demo account. Please try again.',
+            ], 500);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Demo account created successfully!',
+        ]);
+    }
+
+    public function updateDemoAccount(Request $request)
+    {
+        $this->ensureSuperAdmin();
+        $request->validate(['demo_account_id' => 'required|exists:demo_accounts,id']);
+
+        $demoAccount = DemoAccount::findOrFail($request->demo_account_id);
+        $request->validate($this->demoAccountRules($demoAccount));
+
+        $user = $demoAccount->user ?? new User();
+        if (!$user->exists && !$request->filled('password')) {
+            throw ValidationException::withMessages([
+                'password' => 'A password is required because this demo account has no login yet.',
+            ]);
+        }
+
+        try {
+            DB::transaction(function () use ($request, $demoAccount, $user) {
+                $isNewUser = !$user->exists;
+
+                $demoAccount->facility_name = $request->facility_name;
+                $demoAccount->status = $request->status;
+
+                $this->saveDemoAccountUser($user, $demoAccount, $request);
+                if ($isNewUser && ($role = $this->demoAccountRole())) {
+                    $user->roles()->sync([$role->id]);
+                }
+
+                $demoAccount->user_id = $user->id;
+                $demoAccount->save();
+                $demoAccount->services()->sync($request->input('services', []));
+                $demoAccount->syncServiceCopies();
+            });
+        } catch (Exception $e) {
+            Log::error('Demo account update failed: ' . $e->getMessage());
+
+            return response()->json([
+                'status' => 'fail',
+                'message' => 'Failed to update the demo account. Please try again.',
+            ], 500);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Demo account updated successfully!',
+        ]);
+    }
+
+    public function deleteDemoAccount(Request $request)
+    {
+        $this->ensureSuperAdmin();
+        $request->validate([
+            'demo_account_id' => 'required|exists:demo_accounts,id',
+        ]);
+
+        $demoAccount = DemoAccount::findOrFail($request->demo_account_id);
+
+        try {
+            $demoAccount->deleteWithEnvironment();
+        } catch (Exception $e) {
+            Log::error('Demo account deletion failed: ' . $e->getMessage());
+
+            return response()->json([
+                'status' => 'fail',
+                'message' => 'Failed to delete the demo account. Please try again.',
+            ], 500);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Demo account deleted successfully!',
+        ]);
+    }
+
+    public function updateDemoAccountStatus(Request $request)
+    {
+        $this->ensureSuperAdmin();
+        $request->validate([
+            'demo_account_id' => 'required|exists:demo_accounts,id',
+            'status' => 'required|in:active,inactive',
+        ]);
+
+        $demoAccount = DemoAccount::findOrFail($request->demo_account_id);
+        $demoAccount->status = $request->status;
+        $demoAccount->save();
+
+        return response()->json([
+            'status' => 'success',
+            'message' => $request->status === 'active'
+                ? 'Demo account activated successfully!'
+                : 'Demo account deactivated successfully!',
         ]);
     }
 }

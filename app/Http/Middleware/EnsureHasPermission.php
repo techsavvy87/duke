@@ -38,6 +38,11 @@ class EnsureHasPermission
             return null;
         }
 
+        // Demo users may only open the services enabled for their demo account
+        if (!auth()->user()?->canAccessService($service)) {
+            return null;
+        }
+
         return getServicePermissionId($service);
     }
 }

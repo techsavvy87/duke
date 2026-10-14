@@ -22,7 +22,7 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         View::composer('layouts.main', function ($view) {
-        $services = Service::where('status', 'active')->where('level', 'primary')->get();
+        $services = Service::where('status', 'active')->where('level', 'primary')->accessibleTo()->get();
         $view->with('servicesForMenu', $services);
     });
     }

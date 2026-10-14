@@ -6,6 +6,11 @@ use Illuminate\Database\Eloquent\Model;
 
 class Payout extends Model
 {
+    protected static function booted(): void
+    {
+        registerDemoEnvironmentScope(static::class);
+    }
+
     protected $fillable = [
         'amount',
         'currency',

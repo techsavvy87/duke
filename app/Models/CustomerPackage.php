@@ -6,6 +6,11 @@ use Illuminate\Database\Eloquent\Model;
 
 class CustomerPackage extends Model
 {
+    protected static function booted(): void
+    {
+        registerDemoEnvironmentScope(static::class);
+    }
+
     public function customer()
     {
         return $this->belongsTo(User::class, 'customer_id', 'id');

@@ -320,6 +320,8 @@ class CustomerController extends Controller
             } else {
                 $user = new User();
                 $user->email = $invite->email;
+                // Customers registering from a demo invite join that demo environment
+                $user->demo_account_id = $invite->demo_account_id;
                 $user->password = bcrypt($request->password);
                 $user->email_verified_at = Carbon::now();
                 $user->status = true;
@@ -385,6 +387,7 @@ class CustomerController extends Controller
                 if (!$pet) {
                     $pet = new PetProfile();
                     $pet->user_id = $user->id;
+                    $pet->demo_account_id = $user->demo_account_id;
                     $pet->vaccine_status = 'submitted';
                     $pet->rating = null;
                     $pet->rating_notes = null;

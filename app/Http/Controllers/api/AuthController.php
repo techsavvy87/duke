@@ -54,6 +54,14 @@ class AuthController extends Controller
             ], 200);
         }
 
+        if ($user->demoAccessBlocked()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'This demo account is inactive.',
+                'results' => NULL
+            ], 200);
+        }
+
         // delete the record of VerifyEmail, VerifyPassword
         $verifyEmail = VerifyEmail::where('user_id', $user->id)->delete();
         $verifyPassword = VerifyPassword::where('user_id', $user->id)->delete();
@@ -63,6 +71,7 @@ class AuthController extends Controller
         // services for menu configuration
         $services = Service::where('status', 'active')
                     ->where('level', 'primary')
+                    ->accessibleTo($user)
                     // ->whereHas('category', function ($query) {
                     //     $query->whereRaw('LOWER(name) not like ?', ['%package%']);
                     // })

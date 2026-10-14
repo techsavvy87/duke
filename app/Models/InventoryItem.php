@@ -6,6 +6,11 @@ use Illuminate\Database\Eloquent\Model;
 
 class InventoryItem extends Model
 {
+    protected static function booted(): void
+    {
+        registerDemoEnvironmentScope(static::class);
+    }
+
     public function category()
     {
         return $this->belongsTo(InventoryCategory::class, 'category_id', 'id');

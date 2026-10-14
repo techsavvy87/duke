@@ -204,7 +204,14 @@ class InvoicePaymentService
             'invoice_status' => $summary['status'] ?? null,
         ];
 
-        $staffRecipients = User::query()
+        // Only staff of the invoice's environment (real facility or its demo account); the
+        // Stripe webhook runs without an authenticated user, so this is not left to the scope.
+        $staffRecipients = User::withoutGlobalScope('demo_environment')
+            ->when(
+                $invoice->demo_account_id,
+                fn ($query) => $query->where('demo_account_id', $invoice->demo_account_id),
+                fn ($query) => $query->whereNull('demo_account_id')
+            )
             ->whereHas('roles', function ($query) {
                 $query->whereRaw('LOWER(title) <> ?', ['customer']);
             })
@@ -217,6 +224,7 @@ class InvoicePaymentService
             $notification->title = $title;
             $notification->message = $message;
             $notification->type = 'invoice_payment';
+            $notification->demo_account_id = $invoice->demo_account_id;
             $notification->metadata = $metadata;
             $notification->is_read = false;
             $notification->save();

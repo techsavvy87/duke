@@ -106,6 +106,12 @@
                   </div>
                 </div>
                 @endif
+                @if (Auth::user()->isSuperAdmin())
+                <a class="sidebar-menu-item" href="{{ route('demo-accounts') }}">
+                  <span class="iconify lucide--monitor-smartphone size-4"></span>
+                  Demo Accounts
+                </a>
+                @endif
                 @if (hasPermission(1, 'can_read') || hasPermission(24, 'can_read'))
                 <div class="group collapse">
                   <input aria-label="Sidemenu item trigger" class="peer" type="checkbox" name="sidebar-menu-parent-item" />
@@ -287,6 +293,9 @@
               </select>
             </div>
             <div class="inline-flex items-center gap-1.5">
+              @if (Auth::user()->isDemo())
+              <span class="badge badge-warning badge-soft badge-sm" title="Demo environment">Demo · {{ optional(Auth::user()->demoAccount)->facility_name }}</span>
+              @endif
               <a href="{{ route('help') }}" class="btn btn-circle btn-ghost btn-sm" aria-label="Help" title="Help & Support">
                 <span class="iconify lucide--help-circle size-4.5"></span>
               </a>

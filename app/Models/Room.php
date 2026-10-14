@@ -6,6 +6,11 @@ use Illuminate\Database\Eloquent\Model;
 
 class Room extends Model
 {
+    protected static function booted(): void
+    {
+        registerDemoEnvironmentScope(static::class);
+    }
+
     protected $fillable = [
         'img',
         'name',

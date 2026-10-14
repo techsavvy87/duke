@@ -6,6 +6,17 @@ use Illuminate\Database\Eloquent\Model;
 
 class PaymentLink extends Model
 {
+    protected static function booted(): void
+    {
+        static::creating(function (PaymentLink $paymentLink) {
+            inheritDemoAccountId($paymentLink, [
+                [Invoice::class, $paymentLink->invoice_id],
+                [Appointment::class, $paymentLink->appointment_id],
+            ]);
+        });
+        registerDemoEnvironmentScope(static::class);
+    }
+
     protected $fillable = [
         'invoice_id',
         'appointment_id',

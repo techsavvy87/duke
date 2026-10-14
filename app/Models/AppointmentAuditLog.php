@@ -11,6 +11,11 @@ use Illuminate\Database\Eloquent\Model;
  */
 class AppointmentAuditLog extends Model
 {
+    protected static function booted(): void
+    {
+        registerDemoEnvironmentScope(static::class);
+    }
+
     public const UPDATED_AT = null;
 
     protected $fillable = [

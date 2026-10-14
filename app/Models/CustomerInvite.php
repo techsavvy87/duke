@@ -6,6 +6,11 @@ use Illuminate\Database\Eloquent\Model;
 
 class CustomerInvite extends Model
 {
+    protected static function booted(): void
+    {
+        registerDemoEnvironmentScope(static::class);
+    }
+
     protected $fillable = [
         'invited_by',
         'email',

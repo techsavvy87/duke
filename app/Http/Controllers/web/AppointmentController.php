@@ -36,6 +36,7 @@ use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 use App\Mail\Invoice as InvoiceMail;
 use App\Mail\AdminCustomerMessage;
 
@@ -91,6 +92,9 @@ class AppointmentController extends Controller
         if ($serviceId)
             $appointments = $appointments->where('service_id', $serviceId);
 
+        if (auth()->user()->isDemo())
+            $appointments = $appointments->whereIn('service_id', auth()->user()->enabledDemoServiceIds());
+
         if ($staffId)
             $appointments = $appointments->where('staff_id', $staffId);
 
@@ -135,7 +139,7 @@ class AppointmentController extends Controller
                 });
         }
 
-        $services = Service::where('status', 'active')->where('level', 'primary')->get();
+        $services = Service::where('status', 'active')->where('level', 'primary')->accessibleTo()->get();
         $staffs = User::whereHas('roles', function ($query) {
             $query->whereNot('title', 'customer');
         })->get();
@@ -163,7 +167,7 @@ class AppointmentController extends Controller
             return str_contains(strtolower(optional($item->category)->name), 'training');
         })->values();
 
-        $services = Service::where('status', 'active')->where('level', 'primary')->get();
+        $services = Service::where('status', 'active')->where('level', 'primary')->accessibleTo()->get();
         $groupClasses = GroupClass::where('status', 'active')->orderBy('started_at', 'desc')->get();
         $packages = Package::where('status', 'active')->orderBy('created_at', 'desc')->get();
 
@@ -191,6 +195,39 @@ class AppointmentController extends Controller
             'kennels',
             'rooms'
         ));
+    }
+
+    /**
+     * Demo users may only book the services enabled for their demo account, and
+     * every user may only book for customers, pets and staff of their own environment.
+     */
+    private function ensureAppointmentAccess(Request $request): void
+    {
+        $serviceId = $request->input('service');
+        if (is_scalar($serviceId) && $serviceId && !auth()->user()->canAccessService($serviceId)) {
+            throw ValidationException::withMessages([
+                'service' => 'The selected service is not available for this account.',
+            ]);
+        }
+
+        $records = [
+            'appointment_id' => Appointment::class,
+            'customer' => User::class,
+            'staff' => User::class,
+            'pet' => PetProfile::class,
+        ];
+
+        foreach ($records as $field => $modelClass) {
+            $ids = collect(\Illuminate\Support\Arr::wrap($request->input($field)))
+                ->filter(fn ($id) => is_scalar($id) && $id !== '')
+                ->unique();
+
+            if ($ids->isNotEmpty() && $modelClass::whereKey($ids->all())->count() !== $ids->count()) {
+                throw ValidationException::withMessages([
+                    $field => 'The selected ' . str_replace('_', ' ', $field) . ' is invalid.',
+                ]);
+            }
+        }
     }
 
     private function isBoardingServiceId($serviceId): bool
@@ -833,6 +870,8 @@ class AppointmentController extends Controller
 
     public function create(Request $request, AppointmentBookingNotifier $bookingNotifier)
     {
+        $this->ensureAppointmentAccess($request);
+
         if ($this->isBoardingServiceId($request->input('service'))) {
             return $this->createBoarding($request, $bookingNotifier);
         }
@@ -1015,6 +1054,8 @@ class AppointmentController extends Controller
 
     public function createPackageAppointment(Request $request)
     {
+        $this->ensureAppointmentAccess($request);
+
         $request->validate([
             'customer' => 'required|exists:users,id',
             'pet' => 'required|exists:pet_profiles,id',
@@ -1126,7 +1167,7 @@ class AppointmentController extends Controller
 
     private function createInvoiceForAppointment($appointment, $request)
     {
-        $existingInvoice = Invoice::where('invoice_number', $request->invoice_number)->first();
+        $existingInvoice = Invoice::withoutGlobalScope('demo_environment')->where('invoice_number', $request->invoice_number)->first();
         if ($existingInvoice) {
             return;
         }
@@ -1179,7 +1220,10 @@ class AppointmentController extends Controller
     public function edit($id)
     {
         $appointment = Appointment::findOrFail($id);
-        $services = Service::where('status', 'active')->where('level', 'primary')->get();
+        if (!auth()->user()->canAccessService($appointment->service_id)) {
+            return redirect()->route('appointments');
+        }
+        $services = Service::where('status', 'active')->where('level', 'primary')->accessibleTo()->get();
         $additionalServices = Service::where('status', 'active')->whereNot('id', $appointment->service_id)->get();
 
         $service = Service::with('category')->find($appointment->service_id);
@@ -1275,6 +1319,8 @@ class AppointmentController extends Controller
 
     public function update(Request $request, AppointmentBookingNotifier $bookingNotifier)
     {
+        $this->ensureAppointmentAccess($request);
+
         if ($this->isBoardingServiceId($request->input('service'))) {
             $previousAppointment = Appointment::with('service.category')->find($request->input('appointment_id'));
             $response = $this->updateBoarding($request, $bookingNotifier);
@@ -5747,8 +5793,8 @@ class AppointmentController extends Controller
             $invoice->appointment_id = $appointment->id;
         }
 
-        // Check if invoice number is unique (except for current invoice)
-        $existingInvoice = Invoice::where('invoice_number', $request->invoice_number)
+        // Check if invoice number is unique (except for current invoice); numbers are unique across all environments
+        $existingInvoice = Invoice::withoutGlobalScope('demo_environment')->where('invoice_number', $request->invoice_number)
             ->where('id', '!=', $invoice->id ?? 0)
             ->first();
         if ($existingInvoice) {

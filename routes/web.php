@@ -67,7 +67,7 @@ Route::controller(AuthController::class)->group(function () {
     Route::post('/reset/password', 'resetPassword')->name('reset-password');
 });
 
-Route::middleware(['auth'])->group(function () {
+Route::middleware(['auth', 'demo.access'])->group(function () {
     Route::controller(AuthController::class)->group(function () {
         Route::get('/logout', 'logout')->name('logout');
     });
@@ -124,6 +124,13 @@ Route::middleware(['auth'])->group(function () {
 
         Route::post('/file/upload/process', 'processFileUpload')->name('process-file-upload');
         Route::delete('/file/upload/revert', 'revertFileUpload')->name('revert-file-upload');
+
+        // Demo accounts (Super Admin only, checked in the controller)
+        Route::get('/demo-accounts', 'listDemoAccounts')->name('demo-accounts');
+        Route::post('/demo-account/create', 'createDemoAccount')->name('create-demo-account');
+        Route::post('/demo-account/update', 'updateDemoAccount')->name('update-demo-account');
+        Route::post('/demo-account/status', 'updateDemoAccountStatus')->name('update-demo-account-status');
+        Route::post('/demo-account/delete', 'deleteDemoAccount')->name('delete-demo-account');
     });
 
     Route::controller(HolidayController::class)->group(function () {

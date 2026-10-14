@@ -6,6 +6,11 @@ use Illuminate\Database\Eloquent\Model;
 
 class PetProfile extends Model
 {
+    protected static function booted(): void
+    {
+        registerDemoEnvironmentScope(static::class);
+    }
+
     public const VACCINE_STATUS_EXPIRED = 'expired';
 
     protected $casts = [

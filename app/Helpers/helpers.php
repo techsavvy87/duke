@@ -1043,11 +1043,90 @@ if (!function_exists('hasPermission')) {
             return false;
         }
 
-        return auth()->user()->roles()
+        $user = auth()->user();
+
+        // The demo login created by the Super Admin runs its own sandbox, so it is
+        // granted every permission there; demo restrictions below still apply.
+        $granted = $user->isDemoAccountLogin() || $user->roles()
             ->join('roles_permissions', 'roles.id', '=', 'roles_permissions.role_id')
             ->where('roles_permissions.permission_id', $permissionId)
             ->where('roles_permissions.' . $canValue, 1)
             ->exists();
+
+        return $granted && $user->demoAllowsPermission((int) $permissionId, $canValue);
+    }
+}
+
+if (!function_exists('currentDemoAccountId')) {
+    /**
+     * Demo account (environment) of the authenticated user, or null for the real facility.
+     * Only reads an already-resolved user, so it is safe to call from model scopes.
+     */
+    function currentDemoAccountId(): ?int
+    {
+        $user = auth()->hasUser() ? auth()->user() : null;
+
+        return $user && $user->is_demo ? (int) $user->demo_account_id : null;
+    }
+}
+
+if (!function_exists('inheritDemoAccountId')) {
+    /**
+     * Environment of a record created without an authenticated user (e.g. the Stripe webhook):
+     * taken from the first related record that exists, in the given order.
+     *
+     * @param array $sources list of [modelClass, id] pairs
+     */
+    function inheritDemoAccountId($model, array $sources): void
+    {
+        if ($model->demo_account_id !== null) {
+            return;
+        }
+
+        foreach ($sources as [$modelClass, $id]) {
+            if (!$id) {
+                continue;
+            }
+
+            $related = $modelClass::withoutGlobalScope('demo_environment')->whereKey($id)->first(['id', 'demo_account_id']);
+            if ($related) {
+                $model->demo_account_id = $related->demo_account_id;
+                return;
+            }
+        }
+    }
+}
+
+if (!function_exists('registerDemoEnvironmentScope')) {
+    /**
+     * Isolate a model per environment through its demo_account_id column:
+     * demo users only see rows of their demo account, everyone else only sees
+     * real facility rows (demo_account_id NULL). New rows are stamped with the
+     * authenticated user's environment. Requests without an authenticated user
+     * (console, webhooks, public links) are not scoped.
+     */
+    function registerDemoEnvironmentScope(string $modelClass): void
+    {
+        $modelClass::addGlobalScope('demo_environment', function (\Illuminate\Database\Eloquent\Builder $query) {
+            if (!auth()->hasUser()) {
+                return;
+            }
+
+            $column = $query->getModel()->qualifyColumn('demo_account_id');
+            $demoAccountId = currentDemoAccountId();
+
+            if ($demoAccountId === null) {
+                $query->whereNull($column);
+            } else {
+                $query->where($column, $demoAccountId);
+            }
+        });
+
+        $modelClass::creating(function ($model) {
+            if ($model->demo_account_id === null && auth()->hasUser()) {
+                $model->demo_account_id = currentDemoAccountId();
+            }
+        });
     }
 }
 
@@ -1061,6 +1140,11 @@ if (!function_exists('isFacilityOwner')) {
     {
         if (!auth()->check()) {
             return false;
+        }
+
+        // The demo login is the owner of its own demo facility
+        if (auth()->user()->isDemoAccountLogin()) {
+            return true;
         }
 
         return auth()->user()->roles()
