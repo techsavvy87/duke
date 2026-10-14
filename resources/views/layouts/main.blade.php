@@ -106,12 +106,6 @@
                   </div>
                 </div>
                 @endif
-                @if (Auth::user()->isSuperAdmin())
-                <a class="sidebar-menu-item" href="{{ route('demo-accounts') }}">
-                  <span class="iconify lucide--monitor-smartphone size-4"></span>
-                  Demo Accounts
-                </a>
-                @endif
                 @if (hasPermission(1, 'can_read') || hasPermission(24, 'can_read'))
                 <div class="group collapse">
                   <input aria-label="Sidemenu item trigger" class="peer" type="checkbox" name="sidebar-menu-parent-item" />
@@ -272,6 +266,12 @@
                 <a class="sidebar-menu-item" href="{{ route('discounts') }}">
                   <span class="iconify lucide--percent size-4"></span>
                   Discounts
+                </a>
+                @endif
+                @if (Auth::user()->isSuperAdmin())
+                <a class="sidebar-menu-item" href="{{ route('demo-accounts') }}">
+                  <span class="iconify lucide--monitor-smartphone size-4"></span>
+                  Demo Accounts
                 </a>
                 @endif
               </div>
