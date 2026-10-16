@@ -42,11 +42,12 @@ class DemoAccount extends Model
     }
 
     /**
-     * Assigned services that are still primary, so a service moved to secondary drops out automatically.
+     * Assigned services that are still assignable (primary, or chauffeur), so a service moved to
+     * secondary drops out automatically.
      */
     public function enabledServices(): BelongsToMany
     {
-        return $this->services()->where('services.level', 'primary');
+        return $this->services()->demoAssignable();
     }
 
     /**

@@ -1379,6 +1379,11 @@
             success: function(response) {
               setSaveButtonLoading(false);
 
+              if (chauffeurSelected && (!response.owner_address_valid || !response.facility_address_valid)) {
+                showAddressValidationErrors(response.owner_address_valid, response.facility_address_valid);
+                return;
+              }
+
               let validationMessage = '';
               if (!response.owner_status) {
                 validationMessage += `<li>Pet owner's profile is inactive.</li>`;
@@ -2102,7 +2107,7 @@
     }
 
     function getSelectedAdditionalServiceForTimeSlot() {
-      const selectedAdditionalServiceIds = collectSelectedAdditionalServiceIds();
+      const selectedAdditionalServiceIds = collectTimeSlotAdditionalServiceIds();
       return selectedAdditionalServiceIds.length > 0 ? selectedAdditionalServiceIds[0] : null;
     }
 
@@ -2169,7 +2174,7 @@
         return;
       }
 
-      const selectedAdditionalServiceIds = collectSelectedAdditionalServiceIds();
+      const selectedAdditionalServiceIds = collectTimeSlotAdditionalServiceIds();
 
       if (selectedAdditionalServiceIds.length === 0) {
         $('#single_time_slot_wrapper').addClass('hidden');
@@ -2256,7 +2261,7 @@
         });
 
         serviceIds.forEach(function(serviceId) {
-          if (!serviceId) {
+          if (!serviceId || isChauffeurAdditionalServiceId(serviceId)) {
             return;
           }
 
@@ -2273,7 +2278,7 @@
     }
 
     function hasMissingAdditionalServiceTimeSlots() {
-      const selectedAdditionalServiceIds = collectSelectedAdditionalServiceIds();
+      const selectedAdditionalServiceIds = collectTimeSlotAdditionalServiceIds();
       if (selectedAdditionalServiceIds.length === 0) {
         return false;
       }
@@ -2458,7 +2463,20 @@
         ? additionalService.category_name.toLowerCase()
         : '';
 
-      return categoryName.includes('groom');
+      // Boarding add-ons are secondary services only: grooming add-ons and chauffeur.
+      return additionalService.level === 'secondary'
+        && (categoryName.includes('groom') || categoryName.includes('chauffeur'));
+    }
+
+    function isChauffeurAdditionalServiceId(serviceId) {
+      return hasSelectedChauffeurAdditionalService([serviceId]);
+    }
+
+    // Selected additional services that need a time slot (chauffeur has none).
+    function collectTimeSlotAdditionalServiceIds() {
+      return collectSelectedAdditionalServiceIds().filter(function(serviceId) {
+        return !isChauffeurAdditionalServiceId(serviceId);
+      });
     }
 
     function applyPetSelectMode(isBoarding) {

@@ -2346,7 +2346,7 @@
         });
 
         serviceIds.forEach(function(serviceId) {
-          if (!serviceId) {
+          if (!serviceId || isChauffeurAdditionalServiceId(serviceId)) {
             return;
           }
 
@@ -2486,7 +2486,7 @@
     }
 
     function getSelectedAdditionalServiceForTimeSlot() {
-      const selectedAdditionalServiceIds = collectSelectedAdditionalServiceIds();
+      const selectedAdditionalServiceIds = collectTimeSlotAdditionalServiceIds();
       return selectedAdditionalServiceIds.length > 0 ? selectedAdditionalServiceIds[0] : null;
     }
 
@@ -2528,7 +2528,7 @@
         return;
       }
 
-      const selectedAdditionalServiceIds = collectSelectedAdditionalServiceIds();
+      const selectedAdditionalServiceIds = collectTimeSlotAdditionalServiceIds();
       const petId = getPrimaryPetId();
       const boardingEndDateTime = $('#boarding_end_datetime').val();
       const pickupDate = boardingEndDateTime ? boardingEndDateTime.split('T')[0] : '';
@@ -2843,7 +2843,20 @@
         ? additionalService.category_name.toLowerCase()
         : '';
 
-      return categoryName.includes('groom');
+      // Boarding add-ons are secondary services only: grooming add-ons and chauffeur.
+      return additionalService.level === 'secondary'
+        && (categoryName.includes('groom') || categoryName.includes('chauffeur'));
+    }
+
+    function isChauffeurAdditionalServiceId(serviceId) {
+      return hasSelectedChauffeurAdditionalService([serviceId]);
+    }
+
+    // Selected additional services that need a time slot (chauffeur has none).
+    function collectTimeSlotAdditionalServiceIds() {
+      return collectSelectedAdditionalServiceIds().filter(function(serviceId) {
+        return !isChauffeurAdditionalServiceId(serviceId);
+      });
     }
 
     function applyPetSelectMode(isBoarding) {

@@ -84,6 +84,20 @@ class Service extends Model
         return $query;
     }
 
+    /**
+     * Services the Super Admin can enable for a demo account: every primary service,
+     * plus chauffeur services whatever their level.
+     */
+    public function scopeDemoAssignable($query)
+    {
+        return $query->where(function ($q) {
+            $q->where($this->qualifyColumn('level'), 'primary')
+                ->orWhereHas('category', function ($categoryQuery) {
+                    $categoryQuery->whereRaw('LOWER(name) LIKE ?', ['%chauffeur%']);
+                });
+        });
+    }
+
     public function category()
     {
         return $this->belongsTo(ServiceCategory::class, 'category_id', 'id');

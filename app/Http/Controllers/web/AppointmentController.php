@@ -2951,20 +2951,33 @@ class AppointmentController extends Controller
             : collect([]);
 
         $hasNonGroomingAdditionalService = $selectedAdditionalServices->contains(function ($additionalService) {
-            return !isGroomingService($additionalService);
+            return !isGroomingService($additionalService) && !isChauffeurService($additionalService);
         });
 
         if ($hasNonGroomingAdditionalService) {
             return back()->withErrors([
-                'additional_services' => 'Additional services must be grooming services.'
+                'additional_services' => 'Additional services must be grooming or chauffeur services.'
             ])->withInput();
         }
 
+        // Chauffeur has no time slots, so only the other additional services need one.
+        $chauffeurAdditionalServiceIds = $selectedAdditionalServices
+            ->filter(fn ($additionalService) => isChauffeurService($additionalService))
+            ->pluck('id')
+            ->map(fn ($serviceId) => (int) $serviceId)
+            ->all();
+        $timeSlotAdditionalServicesByPet = collect($additionalServicesByPet)
+            ->map(fn ($serviceIds) => is_array($serviceIds)
+                ? array_values(array_filter($serviceIds, fn ($serviceId) => !in_array((int) $serviceId, $chauffeurAdditionalServiceIds, true)))
+                : $serviceIds)
+            ->all();
+
         $requiresBoardingAdditionalService = isBoardingService($service);
 
-        $requiresAdditionalServiceTimeSlot = $requiresBoardingAdditionalService && $selectedAdditionalServices->isNotEmpty();
+        $requiresAdditionalServiceTimeSlot = $requiresBoardingAdditionalService
+            && $selectedAdditionalServices->count() > count($chauffeurAdditionalServiceIds);
 
-        $requiredAdditionalServicePairCount = collect($additionalServicesByPet)
+        $requiredAdditionalServicePairCount = collect($timeSlotAdditionalServicesByPet)
             ->map(function ($serviceIds) {
                 if (!is_array($serviceIds)) {
                     return 0;
@@ -2980,7 +2993,7 @@ class AppointmentController extends Controller
 
         $additionalServiceTimeSlotAssignments = $this->normalizeAdditionalServiceTimeSlotsByPetInput(
             $request->input('additional_service_time_slots_by_pet', []),
-            $additionalServicesByPet,
+            $timeSlotAdditionalServicesByPet,
             $request->filled('time_slot') ? (int) $request->time_slot : null,
             $request->input('additional_service_time_slots', [])
         );
@@ -3568,20 +3581,33 @@ class AppointmentController extends Controller
             : collect([]);
 
         $hasNonGroomingAdditionalService = $selectedAdditionalServices->contains(function ($additionalService) {
-            return !isGroomingService($additionalService);
+            return !isGroomingService($additionalService) && !isChauffeurService($additionalService);
         });
 
         if ($hasNonGroomingAdditionalService) {
             return back()->withErrors([
-                'additional_services' => 'Additional services must be grooming services.'
+                'additional_services' => 'Additional services must be grooming or chauffeur services.'
             ])->withInput();
         }
 
+        // Chauffeur has no time slots, so only the other additional services need one.
+        $chauffeurAdditionalServiceIds = $selectedAdditionalServices
+            ->filter(fn ($additionalService) => isChauffeurService($additionalService))
+            ->pluck('id')
+            ->map(fn ($serviceId) => (int) $serviceId)
+            ->all();
+        $timeSlotAdditionalServicesByPet = collect($additionalServicesByPet)
+            ->map(fn ($serviceIds) => is_array($serviceIds)
+                ? array_values(array_filter($serviceIds, fn ($serviceId) => !in_array((int) $serviceId, $chauffeurAdditionalServiceIds, true)))
+                : $serviceIds)
+            ->all();
+
         $requiresBoardingAdditionalService = isBoardingService($service);
 
-        $requiresAdditionalServiceTimeSlot = $requiresBoardingAdditionalService && $selectedAdditionalServices->isNotEmpty();
+        $requiresAdditionalServiceTimeSlot = $requiresBoardingAdditionalService
+            && $selectedAdditionalServices->count() > count($chauffeurAdditionalServiceIds);
 
-        $requiredAdditionalServicePairCount = collect($additionalServicesByPet)
+        $requiredAdditionalServicePairCount = collect($timeSlotAdditionalServicesByPet)
             ->map(function ($serviceIds) {
                 if (!is_array($serviceIds)) {
                     return 0;
@@ -3597,7 +3623,7 @@ class AppointmentController extends Controller
 
         $additionalServiceTimeSlotAssignments = $this->normalizeAdditionalServiceTimeSlotsByPetInput(
             $request->input('additional_service_time_slots_by_pet', []),
-            $additionalServicesByPet,
+            $timeSlotAdditionalServicesByPet,
             $request->filled('time_slot') ? (int) $request->time_slot : null,
             $request->input('additional_service_time_slots', [])
         );
@@ -3974,6 +4000,15 @@ class AppointmentController extends Controller
             });
         }
 
+        if ($chauffeurSelectedInAdditionalServices) {
+            $ownerAddress = buildOwnerAddressFromProfile(optional(optional($primaryPet)->owner)->profile);
+            $ownerAddressValid = !empty($ownerAddress) && geocodeChauffeurAddress($ownerAddress) !== null;
+
+            $facility = \App\Models\FacilityAddress::query()->first();
+            $facilityAddress = buildFacilityAddressFromModel($facility);
+            $facilityAddressValid = !empty($facilityAddress) && geocodeChauffeurAddress($facilityAddress) !== null;
+        }
+
         // Required vaccine validation by pet type
         $vaccineStatus = 'approved';
         $vaccineMessages = [];
@@ -4040,6 +4075,9 @@ class AppointmentController extends Controller
             'questionnaire_required' => $questionnaireRequired,
             'questionnaire_status' => $questionnaireStatus,
             'available_status' => $available_status,
+            'chauffeur_selected' => $chauffeurSelectedInAdditionalServices,
+            'owner_address_valid' => $ownerAddressValid,
+            'facility_address_valid' => $facilityAddressValid,
         ]);
     }
 
@@ -4981,6 +5019,8 @@ class AppointmentController extends Controller
             : collect();
 
         $estimatedTotal = 0;
+        // Chauffeur is one trip for the whole family, so each chauffeur service is charged once.
+        $chargedChauffeurServiceIds = [];
 
         foreach ($petIds as $petId) {
             $pet = PetProfile::find($petId);
@@ -5005,7 +5045,10 @@ class AppointmentController extends Controller
                 }
 
                 if (isChauffeurService($additionalService)) {
-                    $petTotal += calculateChauffeurServicePrice($additionalService, $customerId);
+                    if (!in_array($additionalServiceId, $chargedChauffeurServiceIds, true)) {
+                        $petTotal += calculateChauffeurServicePrice($additionalService, $customerId);
+                        $chargedChauffeurServiceIds[] = $additionalServiceId;
+                    }
                 } else {
                     $petTotal += getServicePrice($additionalService, $petSize);
                 }
