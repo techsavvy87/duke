@@ -664,6 +664,8 @@ class DashboardController extends Controller
                     $familyDiscountAmount = floatval($boardingPricingBreakdown['family_discount_amount'] ?? 0);
 
                     $additionalServiceTotal = 0;
+                    // Chauffeur is one trip for the whole family, so each chauffeur service is charged once.
+                    $chargedChauffeurServiceIds = [];
                     foreach ($pricingPets as $pet) {
                         $petSize = $pet->size ?? ($appointment->pet->size ?? 'medium');
                         $petAdditionalServiceIds = collect($additionalServicesByPet[$pet->id ?? 0] ?? [])
@@ -676,6 +678,13 @@ class DashboardController extends Controller
                             $service = $additionalServices->get($petAdditionalServiceId);
                             if (!$service) {
                                 continue;
+                            }
+
+                            if (isChauffeurService($service)) {
+                                if (in_array($petAdditionalServiceId, $chargedChauffeurServiceIds, true)) {
+                                    continue;
+                                }
+                                $chargedChauffeurServiceIds[] = $petAdditionalServiceId;
                             }
 
                             $additionalServiceTotal += $resolveAppointmentServicePrice($service, $petSize);

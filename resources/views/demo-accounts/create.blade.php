@@ -39,7 +39,7 @@
               {{ $service->name }}
             </label>
             @empty
-            <p class="text-base-content/60 text-sm col-span-2">No primary services are available.</p>
+            <p class="text-base-content/60 text-sm col-span-2">No services are available.</p>
             @endforelse
           </div>
         </div>

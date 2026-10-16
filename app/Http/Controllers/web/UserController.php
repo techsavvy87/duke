@@ -395,7 +395,7 @@ class UserController extends Controller
             'services.*' => [
                 'integer',
                 'distinct',
-                Rule::exists('services', 'id')->where('level', 'primary'),
+                Rule::exists('services', 'id')->where(fn ($query) => $query->whereIn('id', Service::demoAssignable()->select('id'))),
             ],
             'username' => 'required|string|max:255',
             'email' => [
@@ -455,11 +455,11 @@ class UserController extends Controller
     }
 
     /**
-     * Every primary service, loaded from the database (never hardcoded).
+     * Every assignable service (primary, plus chauffeur), loaded from the database (never hardcoded).
      */
     private function demoAccountServices()
     {
-        return Service::where('level', 'primary')->orderBy('name')->get();
+        return Service::demoAssignable()->orderBy('name')->get();
     }
 
     public function addDemoAccount()

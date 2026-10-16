@@ -1527,6 +1527,10 @@
 
                         @if($flatAdditionalIds->isNotEmpty())
                           @if($isBoardingForPricing)
+                            @php
+                              // Chauffeur is one trip for the whole family: one row, charged once.
+                              $listedChauffeurServiceIds = [];
+                            @endphp
                             @foreach($familyPricingPets as $pricingPet)
                               @php
                                 $petServiceIds = collect($additionalServicesByPet[$pricingPet->id] ?? [])
@@ -1542,6 +1546,14 @@
                                     continue;
                                   }
 
+                                  $isFamilyChauffeur = isChauffeurService($additionalService);
+                                  if ($isFamilyChauffeur) {
+                                    if (in_array($additionalService->id, $listedChauffeurServiceIds, true)) {
+                                      continue;
+                                    }
+                                    $listedChauffeurServiceIds[] = $additionalService->id;
+                                  }
+
                                   $isChauffeurAdditional = array_key_exists($additionalService->id, $chauffeurServicePrices);
                                   $additionalPrice = $isChauffeurAdditional
                                     ? floatval($chauffeurServicePrices[$additionalService->id])
@@ -1551,7 +1563,7 @@
                                 <tr class="service-row">
                                   <td>{{ $row++ }}</td>
                                   <td width="56%">
-                                    <div>{{ $additionalService->name }} - {{ $pricingPet->name ?? 'Pet' }}</div>
+                                    <div>{{ $additionalService->name }}@unless($isFamilyChauffeur) - {{ $pricingPet->name ?? 'Pet' }}@endunless</div>
                                     @if($isChauffeurAdditional && $chauffeurDistanceMiles !== null)
                                       <div class="text-[10px] text-base-content/60">
                                         {{ number_format($chauffeurDistanceMiles, 2) }} mi x ${{ number_format($additionalPricePerMile, 2) }}/mi
@@ -8516,6 +8528,10 @@
 
                         @if($flatAdditionalIds->isNotEmpty())
                           @if($isBoardingForPricing)
+                            @php
+                              // Chauffeur is one trip for the whole family: one row, charged once.
+                              $listedChauffeurServiceIds = [];
+                            @endphp
                             @foreach($familyPricingPets as $pricingPet)
                               @php
                                 $petServiceIds = collect($additionalServicesByPet[$pricingPet->id] ?? [])
@@ -8531,6 +8547,14 @@
                                     continue;
                                   }
 
+                                  $isFamilyChauffeur = isChauffeurService($additionalService);
+                                  if ($isFamilyChauffeur) {
+                                    if (in_array($additionalService->id, $listedChauffeurServiceIds, true)) {
+                                      continue;
+                                    }
+                                    $listedChauffeurServiceIds[] = $additionalService->id;
+                                  }
+
                                   $isChauffeurAdditional = array_key_exists($additionalService->id, $chauffeurServicePrices);
                                   $additionalPrice = $isChauffeurAdditional
                                     ? floatval($chauffeurServicePrices[$additionalService->id])
@@ -8540,7 +8564,7 @@
                                 <tr class="service-row">
                                   <td>{{ $row++ }}</td>
                                   <td width="56%">
-                                    <div>{{ $additionalService->name }} - {{ $pricingPet->name ?? 'Pet' }}</div>
+                                    <div>{{ $additionalService->name }}@unless($isFamilyChauffeur) - {{ $pricingPet->name ?? 'Pet' }}@endunless</div>
                                     @if($isChauffeurAdditional && $chauffeurDistanceMiles !== null)
                                       <div class="text-[10px] text-base-content/60">
                                         {{ number_format($chauffeurDistanceMiles, 2) }} mi x ${{ number_format($additionalPricePerMile, 2) }}/mi
