@@ -954,7 +954,7 @@ class DashboardController extends Controller
                 });
         }
 
-        return view('dashboard.appointment', compact('appointment', 'staffs', 'checkedIn', 'process', 'checkout', 'invoice', 'additionalServices', 'lastAppointmentRatings', 'invoiceDiscountRules', 'petBehaviors', 'dbEstimatedPrice', 'assignmentLabel', 'staySummary', 'lateCheckoutDaycareFeeDisplay', 'paymentSummary', 'invoiceTransactions', 'careRooms', 'entireCareSchedule', 'initialTemperament'));
+        return view('dashboard.appointment', compact('appointment', 'staffs', 'checkedIn', 'process', 'checkout', 'invoice', 'additionalServices', 'lastAppointmentRatings', 'invoiceDiscountRules', 'petBehaviors', 'dbEstimatedPrice', 'assignmentLabel', 'staySummary', 'lateCheckoutDaycareFeeDisplay', 'paymentSummary', 'invoiceTransactions', 'careRooms', 'entireCareSchedule', 'initialTemperament', 'chauffeurPricingData'));
     }
 
     private function buildCheckoutStaySummary(Appointment $appointment, ?Checkin $checkin): array

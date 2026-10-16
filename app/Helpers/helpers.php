@@ -1455,19 +1455,49 @@ if (!function_exists('geocodeChauffeurAddress')) {
                     'q' => $address,
                 ]);
 
+            $data = $response->successful() ? $response->json() : null;
+
+            if (is_array($data) && !empty($data[0]['lat']) && !empty($data[0]['lon'])) {
+                return [
+                    'lat' => floatval($data[0]['lat']),
+                    'lon' => floatval($data[0]['lon']),
+                ];
+            }
+        } catch (\Throwable $e) {
+            // Fall through to the US Census geocoder.
+        }
+
+        // OpenStreetMap often lacks house numbers or places rural streets outside the
+        // mailing city, so fall back to the US Census geocoder (postal address ranges).
+        return geocodeAddressWithUsCensus($address);
+    }
+}
+
+if (!function_exists('geocodeAddressWithUsCensus')) {
+    function geocodeAddressWithUsCensus(string $address): ?array
+    {
+        try {
+            $response = \Illuminate\Support\Facades\Http::timeout(12)
+                ->acceptJson()
+                ->get('https://geocoding.geo.census.gov/geocoder/locations/onelineaddress', [
+                    'address' => $address,
+                    'benchmark' => 'Public_AR_Current',
+                    'format' => 'json',
+                ]);
+
             if (!$response->successful()) {
                 return null;
             }
 
-            $data = $response->json();
+            $coordinates = $response->json('result.addressMatches.0.coordinates');
 
-            if (!is_array($data) || empty($data[0]['lat']) || empty($data[0]['lon'])) {
+            if (!is_array($coordinates) || !isset($coordinates['x'], $coordinates['y'])) {
                 return null;
             }
 
             return [
-                'lat' => floatval($data[0]['lat']),
-                'lon' => floatval($data[0]['lon']),
+                'lat' => floatval($coordinates['y']),
+                'lon' => floatval($coordinates['x']),
             ];
         } catch (\Throwable $e) {
             return null;

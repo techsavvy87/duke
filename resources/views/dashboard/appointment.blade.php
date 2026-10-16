@@ -6096,7 +6096,10 @@
       return (input.val() || '').trim();
     }
 
-    return ($row.find('td:nth-child(2)').text() || '').trim();
+    // Rows with a sub-line (e.g. chauffeur "mi x $/mi") keep the item name in the first div.
+    const $cell = $row.find('td:nth-child(2)');
+    const $nameDiv = $cell.children('div').first();
+    return (($nameDiv.length ? $nameDiv.text() : $cell.text()) || '').trim();
   }
 
   function getInvoiceRowPrice($row) {
@@ -11579,7 +11582,10 @@
       return (input.val() || '').trim();
     }
 
-    return ($row.find('td:nth-child(2)').text() || '').trim();
+    // Rows with a sub-line (e.g. chauffeur "mi x $/mi") keep the item name in the first div.
+    const $cell = $row.find('td:nth-child(2)');
+    const $nameDiv = $cell.children('div').first();
+    return (($nameDiv.length ? $nameDiv.text() : $cell.text()) || '').trim();
   }
 
   function getInvoiceRowPrice($row) {
