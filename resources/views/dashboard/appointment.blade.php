@@ -2,8 +2,9 @@
 @section('title', 'Appointment Detail')
 
 {{-- Boarding appointments render sunshine-laravel's appointment page (kept identical to it so the two can be diffed).
-     Every other service keeps the admin page in the @else branch below. --}}
-@if (isBoardingService($appointment->service))
+     Completed appointments of every service also render this branch, so they all share Boarding's
+     Checkout Info and Invoice sections. Other statuses of the other services keep the admin page in the @else branch below. --}}
+@if (isBoardingService($appointment->service) || $appointment->status === 'completed')
 @section('page-css')
 <style>
   .avatar-img {
@@ -253,7 +254,8 @@
       ? $boardingAgreementSignedAt->format('M j, Y g:i A')
       : ($boardingAgreementSignedDateRaw !== '' ? $boardingAgreementSignedDateRaw : 'N/A');
 
-    if ($appointment->status === 'completed' && $headerScheduledPickupAt && $headerActualCheckoutAt) {
+    // Late/early pickup (and the late fee derived from it) only applies to boarding stays.
+    if ($showBoardingDatesInHeader && $appointment->status === 'completed' && $headerScheduledPickupAt && $headerActualCheckoutAt) {
       $headerLateSeconds = $headerScheduledPickupAt->diffInSeconds($headerActualCheckoutAt, false);
       $headerPickupIsLate = $headerLateSeconds > 0;
       $headerPickupIsEarly = $headerLateSeconds < 0;
@@ -311,7 +313,7 @@
     $headerLateCheckoutThresholdHours = 1;
     $headerLateCheckoutHourlyRate = ($headerDaycarePrice > 0 && $headerDaycareDuration > 0) ? round($headerDaycarePrice / $headerDaycareDuration, 2) : 0;
     $headerLateFeeFacility = \App\Models\FacilityAddress::query()->orderBy('id')->first();
-    $headerLateFeeEligible = shouldApplyLateFee($headerLateFeeFacility, $appointment);
+    $headerLateFeeEligible = $showBoardingDatesInHeader && shouldApplyLateFee($headerLateFeeFacility, $appointment);
     $headerLateCheckoutFormulaFee = ($headerLateFeeEligible && $headerPickupIsLate && $headerLateHoursDecimal >= $headerLateCheckoutThresholdHours && $headerLateCheckoutHourlyRate > 0)
       ? round(floor($headerLateHoursDecimal) * $headerLateCheckoutHourlyRate, 2)
       : 0;
@@ -338,6 +340,22 @@
         <p class="text-base-content/70">Unassigned</p>
       @endif
     </div>
+    @if(!$showBoardingDatesInHeader)
+    <div class="flex items-center gap-2">
+      <p class="font-medium">Date: </p>
+      <p class="text-base-content/70">{{ $appointment->date ? \Carbon\Carbon::parse($appointment->date)->format('F j, Y') : 'N/A' }}</p>
+    </div>
+    <div class="flex items-center gap-2">
+      <p class="font-medium">Time: </p>
+      @if($appointment->start_time && $appointment->end_time)
+        <p class="text-base-content/70">{{ \Carbon\Carbon::createFromFormat('H:i:s', $appointment->start_time)->format('h:i A') }}</p>
+        <p>-</p>
+        <p class="text-base-content/70">{{ \Carbon\Carbon::createFromFormat('H:i:s', $appointment->end_time)->format('h:i A') }}</p>
+      @else
+        <p class="text-base-content/70">N/A</p>
+      @endif
+    </div>
+    @else
     <div class="flex items-center gap-2">
       <p class="font-medium">Check-in:</p>
       @if($showBoardingDatesInHeader && $headerCheckinDate)
@@ -390,6 +408,7 @@
         <p class="text-base-content/70">N/A</p>
       @endif
     </div>
+    @endif
     @if($appointment->status === 'completed' && $headerPickupIsLate && $headerLateDurationText)
     <div class="flex items-center gap-2">
       <p class="font-medium">Late:</p>
@@ -3292,6 +3311,8 @@
             <input aria-label="Collapse trigger" type="checkbox" name="accordion-multiple" />
             <div class="collapse-title font-medium py-1">Checkout Info</div>
             <div class="collapse-content bg-base-100">
+              {{-- The late checkout fee is only calculated for boarding stays, so the toggle is boarding-only. --}}
+              @if (isBoardingService($appointment->service))
               <div class="mt-4 flex items-center justify-between rounded-box border border-base-300 p-3">
                 <div>
                   <p class="font-medium">Apply Late Fee</p>
@@ -3302,6 +3323,7 @@
                   <input id="appointment_late_fee" type="checkbox" class="toggle toggle-primary" {{ ($appointment->apply_late_fee ?? true) ? 'checked' : '' }} />
                 </label>
               </div>
+              @endif
               <div class="mt-4 grid grid-cols-1 gap-6 xl:grid-cols-3">
                 <fieldset class="fieldset">
                   <legend class="fieldset-legend">Date*</legend>
@@ -3316,14 +3338,6 @@
                   <input class="input input-bordered w-full" placeholder="Select time" id="checkout_pickup_time" name="checkout_pickup_time" type="time" min="09:00" max="18:00" value="{{ $actualCheckoutAt ? $actualCheckoutAt->format('H:i') : now()->format('H:i') }}" disabled/>
                 </fieldset>
               </div>
-              @if (isGroomingService($appointment->service) && $process && $process->notes)
-              <div class="mt-4">
-                <fieldset class="fieldset">
-                  <legend class="fieldset-legend">Process Notes (from In Progress)</legend>
-                  <div class="textarea textarea-bordered w-full" style="background-color: #181c20; white-space: pre-wrap; word-wrap: break-word; min-height: 80px; padding: 0.75rem; color: #ffffff;">{{ $process->notes }}</div>
-                </fieldset>
-              </div>
-              @endif
               @if(!empty($staySummary['has_data']))
               <div class="mt-4">
                 <fieldset class="fieldset">
@@ -3409,100 +3423,8 @@
                 </fieldset>
               </div>
               @endif
-              @if (isPrivateTrainingService($appointment->service))
-              @php
-                $descriptionNeeds = $checkedIn && $checkedIn->flows && isset($checkedIn->flows['description_needs']) ? $checkedIn->flows['description_needs'] : '';
-              @endphp
-              @if($descriptionNeeds)
-              <div class="mt-4">
-                <p class="font-medium mb-2">Customer Goal:</p>
-                <div class="mb-2 ms-4">
-                  <p class="text-sm text-base-content/70 whitespace-pre-wrap">{{ $descriptionNeeds }}</p>
-                </div>
-              </div>
-              @endif
-              @endif
               <hr class="mt-5" style="color: lightgray"/>
               <div class="mt-4 space-y-2 text-sm">
-                @if (isPrivateTrainingService($appointment->service))
-                @if(!empty($lastAppointmentRatings))
-                <div>
-                  <p class="font-medium mb-2">Star Rating from Last Appointment:</p>
-                  @php
-                    $obedienceCommands = ['sit', 'down', 'stay', 'come', 'loose_leash_walking'];
-                  @endphp
-                  <div class="mb-4 ms-4 space-y-3">
-                    @foreach($obedienceCommands as $command)
-                      @php
-                        $commandLabel = ucwords(str_replace('_', ' ', $command));
-                        $lastRating = isset($lastAppointmentRatings[$command]) ? (int)$lastAppointmentRatings[$command] : 0;
-                      @endphp
-                      <div class="flex items-center gap-2">
-                        <p class="text-sm font-medium mb-1">{{ $commandLabel }}:</p>
-                        <div class="flex items-center gap-1">
-                          @for($i = 0; $i <= 5; $i++)
-                            <span class="iconify lucide--star size-5" style="color: {{ $i <= $lastRating ? '#fbbf24' : '#d1d5db' }};"></span>
-                          @endfor
-                        </div>
-                      </div>
-                    @endforeach
-                  </div>
-                </div>
-                <hr class="my-4" style="color: lightgray"/>
-                @endif
-                <div>
-                  <div class="flex items-center gap-3 mb-2">
-                    <p class="font-medium" style="flex-grow: unset">Basic obedience (5-star rating)</p>
-                    <div class="dropdown dropdown-end dropdown-hover">
-                      <div tabindex="0" role="button" class="cursor-help">
-                        <span class="iconify lucide--info size-4 mt-1"></span>
-                      </div>
-                      <div tabindex="0" class="dropdown-content z-[1] menu p-4 shadow bg-base-100 rounded-box w-80 border border-base-300" style="left: -10px">
-                        <div class="space-y-2 text-xs">
-                          <p class="font-semibold text-sm mb-2">5 Star Rating System:</p>
-                          <p><span class="font-medium">0 star</span> — pet does not recognize command</p>
-                          <p><span class="font-medium">1 star</span> — pet has infrequent response to command in a quiet environment</p>
-                          <p><span class="font-medium">2 stars</span> — pet has intermittent response to command but highly distracted</p>
-                          <p><span class="font-medium">3 stars</span> — pet has regular response to command but effected by distractions</p>
-                          <p><span class="font-medium">4 stars</span> — pet has reliable response to command but has some challenges when distracted</p>
-                          <p><span class="font-medium">5 stars</span> — pet has dependable response to command regardless of environment</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  @php
-                    $obedienceRatings = $checkout && $checkout->flows && isset($checkout->flows['obedience_ratings']) ? $checkout->flows['obedience_ratings'] : [];
-                    $obedienceCommands = ['sit', 'down', 'stay', 'come', 'loose_leash_walking'];
-                    $starDescriptions = [
-                      0 => 'pet does not recognize command',
-                      1 => 'pet has infrequent response to command in a quiet environment',
-                      2 => 'pet has intermittent response to command but highly distracted',
-                      3 => 'pet has regular response to command but effected by distractions',
-                      4 => 'pet has reliable response to command but has some challenges when distracted',
-                      5 => 'pet has dependable response to command regardless of environment'
-                    ];
-                  @endphp
-                  <div class="mb-2 ms-4 space-y-3">
-                    @foreach($obedienceCommands as $command)
-                      @php
-                        $commandLabel = ucwords(str_replace('_', ' ', $command));
-                        $currentRating = isset($obedienceRatings[$command]) ? $obedienceRatings[$command] : 0;
-                      @endphp
-                      <div class="flex items-center gap-2">
-                        <p class="text-sm font-medium mb-1">{{ $commandLabel }}:</p>
-                        <div class="flex items-center gap-1 star-rating-container" data-rating="{{ $currentRating }}" data-command="{{ $command }}">
-                          @for($i = 1; $i <= 5; $i++)
-                            <input type="radio" class="hidden" name="obedience_rating_{{ $command }}" value="{{ $i }}" id="rating_{{ $command }}_{{ $i }}" {{ $currentRating == $i ? 'checked' : '' }} />
-                            <label for="rating_{{ $command }}_{{ $i }}" class="cursor-pointer">
-                              <span class="iconify lucide--star size-5 star-rating-icon" data-star-value="{{ $i }}" data-command="{{ $command }}" style="color: {{ $i <= $currentRating ? '#fbbf24' : '#d1d5db' }}; transition: color 0.2s;"></span>
-                            </label>
-                          @endfor
-                        </div>
-                      </div>
-                    @endforeach
-                  </div>
-                </div>
-                @endif
                 <div class="mt-3">
                   <p class="font-medium mb-2">Notes for {{ $appointment->service->name }}:</p>
                   <div class="mb-2">
@@ -3510,30 +3432,6 @@
                   </div>
                 </div>
               </div>
-              @if (isPrivateTrainingService($appointment->service))
-              <hr class="mt-5" style="color: lightgray"/>
-              <div class="mt-4 text-sm space-y-4">
-                <div class="divider my-4"></div>
-                <div>
-                  <p class="font-medium mb-2">Current ratings:</p>
-                  <div class="mb-2 ms-4">
-                    <textarea class="textarea textarea-bordered w-full" id="training_current_ratings" name="training_current_ratings" rows="3" placeholder="Enter current ratings summary...">{{ $checkout && $checkout->flows && isset($checkout->flows['training_current_ratings']) ? $checkout->flows['training_current_ratings'] : '' }}</textarea>
-                  </div>
-                </div>
-                <div>
-                  <p class="font-medium mb-2">Goal for next lesson:</p>
-                  <div class="mb-2 ms-4">
-                    <input class="input input-bordered w-full" id="training_targets" name="training_targets" type="text" placeholder="Enter targets for next lesson..." value="{{ $checkout && $checkout->flows && isset($checkout->flows['training_targets']) ? $checkout->flows['training_targets'] : '' }}" />
-                  </div>
-                </div>
-                <div>
-                  <p class="font-medium mb-2">Homework for owner:</p>
-                  <div class="mb-2 ms-4">
-                    <textarea class="textarea textarea-bordered w-full" id="training_homework" name="training_homework" rows="3" placeholder="Enter homework for owner...">{{ $checkout && $checkout->flows && isset($checkout->flows['training_homework']) ? $checkout->flows['training_homework'] : '' }}</textarea>
-                  </div>
-                </div>
-              </div>
-              @endif
             </div>
           </div>
         </div>
@@ -8298,563 +8196,6 @@
         </div>
         @endif
       @endif
-      @if ($appointment->status === 'completed' && !isGroupClassService($appointment->service))
-        @php
-          $canOverrideInvoiceLock = auth()->check()
-            && auth()->user()->roles()->whereRaw('LOWER(title) in (?, ?)', ['owner', 'admin'])->exists();
-          $isInvoiceEditingLocked = $invoice
-            && in_array(strtolower((string) ($invoice->status ?? '')), ['paid', 'finalized'], true)
-            && !$canOverrideInvoiceLock;
-        @endphp
-        <div id="invoice_section_card" class="card card-border bg-base-100 mt-3">
-          <div class="card-body gap-0">
-            <div class="bg-base-200 rounded-box collapse collapse-arrow">
-              <input aria-label="Collapse trigger" type="checkbox" name="accordion-multiple" />
-              <div class="collapse-title font-medium py-1">Invoice</div>
-              <div class="collapse-content bg-base-100">
-                @if($isInvoiceEditingLocked)
-                  <div class="alert alert-soft alert-warning mb-3">
-                    <span class="iconify lucide--lock size-4"></span>
-                    <span>Invoice is finalized/paid and locked. Only owner/admin can edit.</span>
-                  </div>
-                @endif
-                <div class="text-sm mt-3 space-y-1">
-                  <fieldset class="fieldset">
-                    <legend class="fieldset-legend">Invoice Number*</legend>
-                    <input type="text" id="invoice_number" class="input input-bordered w-full input-sm" value="{{ $invoice ? $invoice->invoice_number : App\Models\Invoice::generateInvoiceNumber() }}" placeholder="Enter invoice number" />
-                  </fieldset>
-                  <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                    <fieldset class="fieldset">
-                      <legend class="fieldset-legend">First Name*</legend>
-                      <input type="text" id="first_name" class="input input-bordered w-full input-sm" value="{{ $invoice ? $invoice->first_name : ($appointment->customer->profile->first_name ?? '') }}" placeholder="Enter first name" />
-                    </fieldset>
-                    <fieldset class="fieldset">
-                      <legend class="fieldset-legend">Last Name*</legend>
-                      <input type="text" id="last_name" class="input input-bordered w-full input-sm" value="{{ $invoice ? $invoice->last_name : ($appointment->customer->profile->last_name ?? '') }}" placeholder="Enter last name" />
-                    </fieldset>
-                  </div>
-                  <fieldset class="fieldset">
-                    <legend class="fieldset-legend">Email*</legend>
-                    <input type="text" id="email" class="input input-bordered w-full input-sm" value="{{ $invoice ? $invoice->email : ($appointment->customer->email ?? '') }}" placeholder="Enter email" />
-                  </fieldset>
-                  <fieldset class="fieldset">
-                    <legend class="fieldset-legend">Notes</legend>
-                    <textarea placeholder="Type here" id="invoice_notes" class="textarea w-full">{{ $invoice ? $invoice->notes : '' }}</textarea>
-                  </fieldset>
-                  <fieldset class="fieldset">
-                    <legend class="fieldset-legend">Inventory Items</legend>
-                    <div class="flex items-center gap-2">
-                      <select class="select w-full select-sm" name="inventory_item" id="inventory_item" {{ $isInvoiceEditingLocked || !canEditInvoice() ? 'disabled' : '' }}>
-                      </select>
-                      <button type="button" class="btn btn-sm btn-outline btn-primary" onclick="addInventoryItem()" {{ $isInvoiceEditingLocked || !canEditInvoice() ? 'disabled' : '' }} title="{{ !canEditInvoice() ? 'Only the facility owner can add items.' : ($isInvoiceEditingLocked ? 'Invoice is locked.' : '') }}">
-                        <span class="iconify lucide--plus size-3"></span>
-                        <span class="hidden sm:inline">Add</span>
-                      </button>
-                      <button type="button" class="btn btn-sm btn-outline" id="add_line_item_btn" onclick="addCustomLineItem()" {{ $isInvoiceEditingLocked || !canEditInvoice() ? 'disabled' : '' }} title="{{ !canEditInvoice() ? 'Only the facility owner can add items.' : ($isInvoiceEditingLocked ? 'Invoice is locked.' : '') }}">
-                        <span class="iconify lucide--plus size-3"></span>
-                        <span class="hidden sm:inline">Add Line Item</span>
-                      </button>
-                    </div>
-                  </fieldset>
-                </div>
-                <hr class="mt-4" style="color: lightgray"/>
-                <div class="mt-4 text-sm">
-                  <h4 class="font-medium mb-2">Items & Pricing</h4>
-                  @if (($chauffeurPricingData['has_chauffeur'] ?? false) && !($chauffeurPricingData['is_route_valid'] ?? false))
-                    <div class="alert alert-soft alert-warning mb-3">
-                      <span class="iconify lucide--triangle-alert size-4"></span>
-                      <span>{{ $chauffeurPricingData['error'] ?? 'Chauffeur distance cannot be calculated due to invalid address/route.' }}</span>
-                    </div>
-                  @endif
-                  <table class="table table-sm w-full text-xs">
-                    <thead>
-                      <tr>
-                        <th>#</th>
-                        <th>Item</th>
-                        <th>Price</th>
-                        <th>Action</th>
-                      </tr>
-                    </thead>
-                    <tbody id="pricing_table">
-                      @php
-                        $isGroupClasses = isGroupClassService($appointment->service);
-                        $isAlaCarte = isAlaCarteService($appointment->service);
-                        $groupClassIds = [];
-                        if ($isGroupClasses && $appointment->metadata && isset($appointment->metadata['group_class_ids'])) {
-                          $groupClassIds = explode(',', $appointment->metadata['group_class_ids']);
-                        }
-                        $secondaryServiceIds = [];
-                        if ($isAlaCarte && $appointment->metadata && isset($appointment->metadata['secondary_service_ids'])) {
-                          $secondaryServiceIds = explode(',', $appointment->metadata['secondary_service_ids']);
-                        }
-                        $chauffeurServicePrices = $chauffeurPricingData['service_prices'] ?? [];
-                        $chauffeurDistanceMiles = $chauffeurPricingData['distance_miles'] ?? null;
-                        $row = 1;
-                      @endphp
-                      @if($isGroupClasses && !empty($groupClassIds))
-                        @php
-                          $groupClasses = \App\Models\GroupClass::whereIn('id', $groupClassIds)->get();
-                        @endphp
-                        @foreach($groupClasses as $groupClass)
-                          <tr class="service-row">
-                            <td>{{ $row++ }}</td>
-                            <td width="56%">{{ $groupClass->name }}</td>
-                            <td>${{ number_format($groupClass->price, 2) }}</td>
-                            <td></td>
-                          </tr>
-                        @endforeach
-                      @elseif($isAlaCarte && !empty($secondaryServiceIds))
-                        @php
-                          $secondaryServices = \App\Models\Service::whereIn('id', $secondaryServiceIds)->get();
-                          $petSize = $appointment->pet->size ?? 'medium';
-                        @endphp
-                        @foreach($secondaryServices as $secondaryService)
-                          @php
-                            $isChauffeurSecondary = array_key_exists($secondaryService->id, $chauffeurServicePrices);
-                            $secondaryPrice = $isChauffeurSecondary
-                              ? floatval($chauffeurServicePrices[$secondaryService->id])
-                              : getServicePrice($secondaryService, $petSize);
-                            $secondaryPricePerMile = floatval($secondaryService->price_per_mile ?? 0);
-                          @endphp
-                          <tr class="service-row">
-                            <td>{{ $row++ }}</td>
-                            <td width="56%">
-                              <div>{{ $secondaryService->name }}</div>
-                              @if($isChauffeurSecondary && $chauffeurDistanceMiles !== null)
-                                <div class="text-[10px] text-base-content/60">
-                                  {{ number_format($chauffeurDistanceMiles, 2) }} mi x ${{ number_format($secondaryPricePerMile, 2) }}/mi
-                                </div>
-                              @endif
-                            </td>
-                            <td>${{ number_format($secondaryPrice, 2) }}</td>
-                            <td></td>
-                          </tr>
-                        @endforeach
-
-                        @if($appointment->additional_service_ids)
-                          @php
-                            $secondaryServiceIdSet = collect($secondaryServiceIds)->map(fn($id) => (string) trim($id))->filter()->values();
-                            $additionalIds = collect(explode(',', $appointment->additional_service_ids))
-                              ->map(fn($id) => (string) trim($id))
-                              ->filter()
-                              ->reject(fn($id) => $secondaryServiceIdSet->contains($id))
-                              ->values();
-
-                            $alaCarteAdditionalServices = $additionalIds->isNotEmpty()
-                              ? \App\Models\Service::whereIn('id', $additionalIds->all())->get()
-                              : collect();
-                          @endphp
-
-                          @foreach($alaCarteAdditionalServices as $additionalService)
-                            @php
-                              $isChauffeurAdditional = array_key_exists($additionalService->id, $chauffeurServicePrices);
-                              $additionalPrice = $isChauffeurAdditional
-                                ? floatval($chauffeurServicePrices[$additionalService->id])
-                                : getServicePrice($additionalService, $petSize);
-                              $additionalPricePerMile = floatval($additionalService->price_per_mile ?? 0);
-                            @endphp
-                            <tr class="service-row">
-                              <td>{{ $row++ }}</td>
-                              <td width="56%">
-                                <div>{{ $additionalService->name }}</div>
-                                @if($isChauffeurAdditional && $chauffeurDistanceMiles !== null)
-                                  <div class="text-[10px] text-base-content/60">
-                                    {{ number_format($chauffeurDistanceMiles, 2) }} mi x ${{ number_format($additionalPricePerMile, 2) }}/mi
-                                  </div>
-                                @endif
-                              </td>
-                              <td>${{ number_format($additionalPrice, 2) }}</td>
-                              <td></td>
-                            </tr>
-                          @endforeach
-                        @endif
-                      @else
-                        @php
-                          $familyPricingPets = $appointment->family_pets;
-                          if ($familyPricingPets->isEmpty() && $appointment->pet) {
-                            $familyPricingPets = collect([$appointment->pet]);
-                          }
-                          $isBoardingForPricing = isBoardingService($appointment->service);
-                          $petCountForPricing = max(1, $familyPricingPets->count());
-
-                          $servicePrice = getServicePrice($appointment->service, $appointment->pet->size, $appointment->metadata);
-                          if ($isBoardingForPricing) {
-                            $boardingPrice = getBoardingServicePrice($appointment->service, $appointment);
-                            if ($boardingPrice !== null) {
-                              $servicePrice = $boardingPrice;
-                            }
-                          }
-                          if ($isBoardingForPricing && $petCountForPricing > 1) {
-                            $servicePrice = $servicePrice * $petCountForPricing;
-                          }
-                        @endphp
-                        @php
-                          $isChauffeurMain = array_key_exists($appointment->service->id, $chauffeurServicePrices);
-                          if ($isChauffeurMain) {
-                            $servicePrice = floatval($chauffeurServicePrices[$appointment->service->id]);
-                          }
-                          $mainPricePerMile = floatval($appointment->service->price_per_mile ?? 0);
-                        @endphp
-                      @endif
-                      @if(!($invoice && $invoice->items && $invoice->items->count() > 0))
-                        <tr class="service-row">
-                          <td>{{ $row++ }}</td>
-                          <td width="56%">
-                            <div>{{ $appointment->service->name }}</div>
-                            @if($isBoardingForPricing && $petCountForPricing > 1 && !$isChauffeurMain)
-                              <div class="text-[10px] text-base-content/60">{{ $petCountForPricing }} pets</div>
-                            @endif
-                            @if($isChauffeurMain && $chauffeurDistanceMiles !== null)
-                              <div class="text-[10px] text-base-content/60">
-                                {{ number_format($chauffeurDistanceMiles, 2) }} mi x ${{ number_format($mainPricePerMile, 2) }}/mi
-                              </div>
-                            @endif
-                          </td>
-                          <td>${{ number_format($servicePrice, 2) }}</td>
-                          <td></td>
-                        </tr>
-                        @php
-                          $additionalServicesByPet = $appointment->additional_services_by_pet ?? [];
-                          $flatAdditionalIds = collect($additionalServicesByPet)
-                            ->flatten()
-                            ->map(fn($id) => (int) $id)
-                            ->filter(fn($id) => $id > 0)
-                            ->unique()
-                            ->values();
-                          $additionalServiceMap = $flatAdditionalIds->isNotEmpty()
-                            ? \App\Models\Service::whereIn('id', $flatAdditionalIds->all())->get()->keyBy('id')
-                            : collect();
-                        @endphp
-
-                        @if($flatAdditionalIds->isNotEmpty())
-                          @if($isBoardingForPricing)
-                            @php
-                              // Chauffeur is one trip for the whole family: one row, charged once.
-                              $listedChauffeurServiceIds = [];
-                            @endphp
-                            @foreach($familyPricingPets as $pricingPet)
-                              @php
-                                $petServiceIds = collect($additionalServicesByPet[$pricingPet->id] ?? [])
-                                  ->map(fn($id) => (int) $id)
-                                  ->filter(fn($id) => $id > 0)
-                                  ->unique()
-                                  ->values();
-                              @endphp
-                              @foreach($petServiceIds as $petServiceId)
-                                @php
-                                  $additionalService = $additionalServiceMap->get($petServiceId);
-                                  if (!$additionalService) {
-                                    continue;
-                                  }
-
-                                  $isFamilyChauffeur = isChauffeurService($additionalService);
-                                  if ($isFamilyChauffeur) {
-                                    if (in_array($additionalService->id, $listedChauffeurServiceIds, true)) {
-                                      continue;
-                                    }
-                                    $listedChauffeurServiceIds[] = $additionalService->id;
-                                  }
-
-                                  $isChauffeurAdditional = array_key_exists($additionalService->id, $chauffeurServicePrices);
-                                  $additionalPrice = $isChauffeurAdditional
-                                    ? floatval($chauffeurServicePrices[$additionalService->id])
-                                    : getServicePrice($additionalService, $pricingPet->size ?? ($appointment->pet->size ?? 'medium'));
-                                  $additionalPricePerMile = floatval($additionalService->price_per_mile ?? 0);
-                                @endphp
-                                <tr class="service-row">
-                                  <td>{{ $row++ }}</td>
-                                  <td width="56%">
-                                    <div>{{ $additionalService->name }}@unless($isFamilyChauffeur) - {{ $pricingPet->name ?? 'Pet' }}@endunless</div>
-                                    @if($isChauffeurAdditional && $chauffeurDistanceMiles !== null)
-                                      <div class="text-[10px] text-base-content/60">
-                                        {{ number_format($chauffeurDistanceMiles, 2) }} mi x ${{ number_format($additionalPricePerMile, 2) }}/mi
-                                      </div>
-                                    @endif
-                                  </td>
-                                  <td>${{ number_format($additionalPrice, 2) }}</td>
-                                  <td></td>
-                                </tr>
-                              @endforeach
-                            @endforeach
-                          @else
-                            @foreach($flatAdditionalIds as $petServiceId)
-                              @php
-                                $additionalService = $additionalServiceMap->get($petServiceId);
-                                if (!$additionalService) {
-                                  continue;
-                                }
-
-                                $isChauffeurAdditional = array_key_exists($additionalService->id, $chauffeurServicePrices);
-                                $additionalPrice = $isChauffeurAdditional
-                                  ? floatval($chauffeurServicePrices[$additionalService->id])
-                                  : getServicePrice($additionalService, $appointment->pet->size);
-                                $additionalPricePerMile = floatval($additionalService->price_per_mile ?? 0);
-                              @endphp
-                              <tr class="service-row">
-                                <td>{{ $row++ }}</td>
-                                <td width="56%">
-                                  <div>{{ $additionalService->name }}</div>
-                                  @if($isChauffeurAdditional && $chauffeurDistanceMiles !== null)
-                                    <div class="text-[10px] text-base-content/60">
-                                      {{ number_format($chauffeurDistanceMiles, 2) }} mi x ${{ number_format($additionalPricePerMile, 2) }}/mi
-                                    </div>
-                                  @endif
-                                </td>
-                                <td>${{ number_format($additionalPrice, 2) }}</td>
-                                <td></td>
-                              </tr>
-                            @endforeach
-                          @endif
-                        @endif
-                      @endif
-                      @if($invoice && $invoice->items)
-                        @php
-                          $displayInvoiceItems = collect(dedupeBoardingAutoFeeInvoiceItems($invoice->items))->values();
-                          if (!shouldApplyLateFee(\App\Models\FacilityAddress::query()->orderBy('id')->first(), $appointment)) {
-                            $displayInvoiceItems = $displayInvoiceItems->reject(function ($item) {
-                              return in_array(strtolower(trim((string) ($item->item_name ?? ''))), ['late fee', 'late checkout daycare fee', 'late checkout fee'], true);
-                            })->values();
-                          }
-                        @endphp
-                        @foreach($displayInvoiceItems as $invoiceItem)
-                          @php
-                            $invoiceItemType = strtolower(trim((string) ($invoiceItem->item_type ?? 'service')));
-                          @endphp
-                          @if($invoiceItemType === 'inventory')
-                          <tr class="inventory-row" data-item-id="{{ $invoiceItem->id }}" data-item-type="inventory">
-                            <td>{{ $row++ }}</td>
-                            <td width="56%">{{ $invoiceItem->item_name }}</td>
-                            <td>${{ number_format($invoiceItem->price, 2) }}</td>
-                            <td>
-                              <button type="button" class="btn btn-sm btn-ghost btn-circle" style="height: 16px" onclick="removeExistingInvoiceItem({{ $invoiceItem->id }})" {{ $isInvoiceEditingLocked || !canEditInvoice() ? 'disabled' : '' }} title="{{ !canEditInvoice() ? 'Only the facility owner can delete items.' : ($isInvoiceEditingLocked ? 'Invoice is locked.' : '') }}">
-                                <span class="iconify lucide--trash-2 size-3 {{ $isInvoiceEditingLocked || !canEditInvoice() ? 'text-gray-400' : 'text-error' }}"></span>
-                              </button>
-                            </td>
-                          </tr>
-                          @elseif($invoiceItemType === 'custom')
-                          <tr class="service-row custom-line-row" data-item-id="{{ $invoiceItem->id }}" data-item-type="custom">
-                            <td>{{ $row++ }}</td>
-                            <td width="56%">{{ $invoiceItem->item_name }}</td>
-                            <td>${{ number_format($invoiceItem->price, 2) }}</td>
-                            <td>
-                              <button type="button" class="btn btn-sm btn-ghost btn-circle" style="height: 16px" onclick="removeExistingInvoiceItem({{ $invoiceItem->id }})" {{ $isInvoiceEditingLocked || !canEditInvoice() ? 'disabled' : '' }} title="{{ !canEditInvoice() ? 'Only the facility owner can delete items.' : ($isInvoiceEditingLocked ? 'Invoice is locked.' : '') }}">
-                                <span class="iconify lucide--trash-2 size-3 {{ $isInvoiceEditingLocked || !canEditInvoice() ? 'text-gray-400' : 'text-error' }}"></span>
-                              </button>
-                            </td>
-                          </tr>
-                          @else
-                          <tr class="service-row" data-item-id="{{ $invoiceItem->id }}" data-item-type="{{ $invoiceItemType ?: 'service' }}">
-                            <td>{{ $row++ }}</td>
-                            <td width="56%">{{ $invoiceItem->item_name }}</td>
-                            <td>${{ number_format($invoiceItem->price, 2) }}</td>
-                            <td>
-                              <button type="button" class="btn btn-sm btn-ghost btn-circle" style="height: 16px" onclick="removeExistingInvoiceItem({{ $invoiceItem->id }})" {{ $isInvoiceEditingLocked || !canEditInvoice() ? 'disabled' : '' }} title="{{ !canEditInvoice() ? 'Only the facility owner can delete items.' : ($isInvoiceEditingLocked ? 'Invoice is locked.' : '') }}">
-                                <span class="iconify lucide--trash-2 size-3 {{ $isInvoiceEditingLocked || !canEditInvoice() ? 'text-gray-400' : 'text-error' }}"></span>
-                              </button>
-                            </td>
-                          </tr>
-                          @endif
-                        @endforeach
-                      @endif
-                      @if($appointment->coat_extra_fee)
-                      <tr class="coat-fee-row">
-                        <td>{{ $row++ }}</td>
-                        <td width="56%">Coat Extra Fee</td>
-                        <td>${{ number_format($appointment->coat_extra_fee, 2) }}</td>
-                        <td></td>
-                      </tr>
-                      @endif
-                      @php
-                        $checkedInFlowsForPricing = [];
-                        if ($checkedIn && !empty($checkedIn->flows)) {
-                          if (is_array($checkedIn->flows)) {
-                            $checkedInFlowsForPricing = $checkedIn->flows;
-                          } else {
-                            $decodedCheckedInFlowsForPricing = json_decode($checkedIn->flows, true);
-                            $checkedInFlowsForPricing = is_array($decodedCheckedInFlowsForPricing) ? $decodedCheckedInFlowsForPricing : [];
-                          }
-                        }
-
-                        $boardingFleaTickBreakdown = isBoardingService($appointment->service)
-                          ? getBoardingFleaTickBreakdown($appointment, $checkedInFlowsForPricing)
-                          : ['checked_pet_count' => 0, 'amount' => 0];
-
-                        $persistedLateCheckoutInvoiceFee = 0;
-                        if ($invoice && $invoice->items) {
-                          foreach ($invoice->items as $invoiceItem) {
-                            if (($invoiceItem->item_type ?? '') === 'service' && in_array(strtolower(trim((string) ($invoiceItem->item_name ?? ''))), ['late fee', 'late checkout daycare fee', 'late checkout fee'], true)) {
-                              $persistedLateCheckoutInvoiceFee = max($persistedLateCheckoutInvoiceFee, floatval($invoiceItem->price ?? 0));
-                            }
-                          }
-                        }
-                        if (!shouldApplyLateFee(\App\Models\FacilityAddress::query()->orderBy('id')->first(), $appointment)) {
-                          $persistedLateCheckoutInvoiceFee = 0;
-                        }
-
-                        $invoiceLateCheckoutBreakdown = isBoardingService($appointment->service)
-                          ? getBoardingLateCheckoutDaycareBreakdown($appointment, $checkout, 1)
-                          : ['fee' => 0];
-                        $invoiceLateCheckoutDaycareFee = max(
-                          floatval($invoiceLateCheckoutBreakdown['fee'] ?? 0),
-                          floatval($persistedLateCheckoutInvoiceFee ?? 0),
-                          floatval($lateCheckoutDaycareFeeDisplay ?? 0),
-                          floatval($headerLateCheckoutFormulaFee ?? 0),
-                          floatval($headerLateCheckoutDaycareFee ?? 0)
-                        );
-                      @endphp
-                      <tr id="flea_tick_fee_row" class="service-row flea-tick-row" data-initial-fee="{{ number_format(($boardingFleaTickBreakdown['amount'] ?? 0), 2, '.', '') }}" style="{{ $invoice || ($boardingFleaTickBreakdown['amount'] ?? 0) <= 0 ? 'display:none;' : '' }}">
-                        <td>{{ $row++ }}</td>
-                        <td width="56%">Flea/Tick Detection Fee</td>
-                        <td>${{ number_format($boardingFleaTickBreakdown['amount'] ?? 0, 2) }}</td>
-                        <td></td>
-                      </tr>
-                      <tr id="late_checkout_daycare_fee_row" class="service-row late-checkout-daycare-row" data-initial-fee="{{ number_format($persistedLateCheckoutInvoiceFee > 0 ? 0 : $invoiceLateCheckoutDaycareFee, 2, '.', '') }}" style="{{ $invoice || $persistedLateCheckoutInvoiceFee > 0 || $invoiceLateCheckoutDaycareFee <= 0 ? 'display:none;' : '' }}">
-                        <td>{{ $row++ }}</td>
-                        <td width="56%">Late Fee</td>
-                        <td>${{ number_format($persistedLateCheckoutInvoiceFee > 0 ? $persistedLateCheckoutInvoiceFee : $invoiceLateCheckoutDaycareFee, 2) }}</td>
-                        <td></td>
-                      </tr>
-                    </tbody>
-                  </table>
-                  <hr class="mt-2" style="color: lightgray"/>
-                  <table class="table table-sm w-full text-xs">
-                    <tbody>
-                      <tr>
-                        <td colspan="2" class="font-medium text-end" width="66%">Total Price of Services:</td>
-                        <td id="total_price_of_services"></td>
-                        <td></td>
-                      </tr>
-                      <tr>
-                        <td colspan="2" class="font-medium text-end" width="66%">Estimated Price of Services:</td>
-                        <td id="estimated_price_of_services">${{ number_format($appointment->estimated_price, 2) }}</td>
-                        <td></td>
-                      </tr>
-                      @if ($invoice && $invoice->discount_amount)
-                      @php
-                        $discountTooltipTitle = $invoice->discount_title ?? '';
-                        $discountCustomerName = trim((($appointment->customer->profile->first_name ?? '') . ' ' . ($appointment->customer->profile->last_name ?? ''))) ?: ($appointment->customer->name ?? 'customer');
-                        $discountTooltipText = 'The discount "' . $discountTooltipTitle . '" is applied for ' . $discountCustomerName . '.';
-                      @endphp
-                      <tr id="invoice_discount_row">
-                          <td id="invoice_discount_label" colspan="2" class="font-medium text-end" width="66%">{{ $invoice->discount_title ?: 'Discount' }}:</td>
-                          <td id="invoice_discount_amount" width="10%">-${{ number_format($invoice->discount_amount, 2) }}</td>
-                          <td style="padding-left: 0">
-                              <span class="flex tooltip tooltip-info tooltip-left cursor-pointer js-click-tooltip js-invoice-discount-tooltip"
-                                    data-tip="{{ $discountTooltipText }}">
-                                  <span class="iconify lucide--info text-info size-5"></span>
-                              </span>
-                          </td>
-                      </tr>
-                      @elseif(!empty($invoiceDiscountRules))
-                        <tr id="invoice_discount_row" style="display: none;">
-                          <td id="invoice_discount_label" colspan="2" class="font-medium text-end" width="66%">Discount:</td>
-                          <td id="invoice_discount_amount" width="10%"></td>
-                          <td style="padding-left: 0">
-                              <span class="flex tooltip tooltip-info tooltip-left cursor-pointer js-click-tooltip js-invoice-discount-tooltip"
-                                    data-tip="">
-                                  <span class="iconify lucide--help-circle text-info size-5"></span>
-                              </span>
-                          </td>
-                      </tr>
-                      @endif
-                      <tr>
-                        <td colspan="2" class="font-medium text-end" width="66%">Total Inventory Amount:</td>
-                        <td id="inventory_total_amount">$0.00</td>
-                        <td></td>
-                      </tr>
-                      <tr>
-                        <td colspan="2" class="font-medium text-end" width="66%">Subtotal:</td>
-                        <td id="invoice_subtotal_amount">$0.00</td>
-                        <td></td>
-                      </tr>
-                      <tr id="invoice_state_tax_row" style="display: none;">
-                        <td colspan="2" class="font-medium text-end" width="66%">State Tax (<span id="invoice_state_tax_rate_label">0</span>%):</td>
-                        <td id="invoice_state_tax_amount">$0.00</td>
-                        <td></td>
-                      </tr>
-                      <tr style="border-bottom: 3px solid lightgray;">
-                        <td colspan="2" class="font-medium text-end" width="66%">Total Amount:</td>
-                        <td id="grand_total_amount">$0.00</td>
-                        <td></td>
-                      </tr>
-                      @php
-                        $invoicePaymentSummary = $paymentSummary ?? [
-                          'online_payment' => 0,
-                          'in_person_payment' => 0,
-                          'payments_received' => 0,
-                          'balance_due' => 0,
-                          'status' => strtolower((string) ($invoice->status ?? 'draft')),
-                        ];
-                        $invoiceStatusValue = strtolower((string) ($invoicePaymentSummary['status'] ?? 'draft'));
-                        $onlinePaymentAmount = floatval($invoicePaymentSummary['online_payment'] ?? 0);
-                        $inPersonPaymentAmount = floatval($invoicePaymentSummary['in_person_payment'] ?? 0);
-                        $shouldShowInvoicePaymentSummary = $invoice
-                          && ($invoiceStatusValue !== 'draft' || floatval($invoicePaymentSummary['payments_received'] ?? 0) > 0);
-                        $invoiceStatusLabel = match ($invoiceStatusValue) {
-                          'paid' => 'Paid',
-                          'partially_paid' => 'Partially Paid',
-                          'sent' => 'Sent',
-                          'void' => 'Void',
-                          'finalized' => 'Finalized',
-                          default => 'Draft',
-                        };
-                        $invoiceStatusBadgeClass = match ($invoiceStatusValue) {
-                          'paid' => 'badge-success',
-                          'partially_paid' => 'badge-warning',
-                          'sent' => 'badge-info',
-                          'void' => 'badge-error',
-                          'finalized' => 'badge-secondary',
-                          default => 'badge-ghost',
-                        };
-                      @endphp
-                      <tr id="invoice_payment_summary_row_online" class="border-t {{ $shouldShowInvoicePaymentSummary && $onlinePaymentAmount > 0 ? '' : 'hidden' }}">
-                        <td colspan="2" class="font-medium text-end" width="66%">Online Payment:</td>
-                        <td id="online_payment_amount">${{ number_format((float) ($invoicePaymentSummary['online_payment'] ?? 0), 2) }}</td>
-                        <td></td>
-                      </tr>
-                      <tr id="invoice_payment_summary_row_in_person" class="{{ $shouldShowInvoicePaymentSummary && $inPersonPaymentAmount > 0 ? '' : 'hidden' }}">
-                        <td colspan="2" class="font-medium text-end" width="66%">In-Person Payment:</td>
-                        <td id="in_person_payment_amount">${{ number_format((float) ($invoicePaymentSummary['in_person_payment'] ?? 0), 2) }}</td>
-                        <td></td>
-                      </tr>
-                      <tr id="invoice_payment_summary_row_balance" class="{{ $shouldShowInvoicePaymentSummary ? '' : 'hidden' }}">
-                        <td colspan="2" class="font-medium text-end" width="66%">Balance Due:</td>
-                        <td id="balance_due_amount">${{ number_format((float) ($invoicePaymentSummary['balance_due'] ?? 0), 2) }}</td>
-                        <td></td>
-                      </tr>
-                      <tr id="invoice_payment_summary_row_status" class="{{ $shouldShowInvoicePaymentSummary ? '' : 'hidden' }}">
-                        <td colspan="2" class="font-medium text-end" width="66%">Invoice Status:</td>
-                        <td id="invoice_status_cell">
-                          <span id="invoice_status_badge" class="badge badge-soft badge-sm {{ $invoiceStatusBadgeClass }}">{{ $invoiceStatusLabel }}</span>
-                        </td>
-                        <td></td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-                <div class="mt-3">
-                  @if(!$isInvoiceEditingLocked)
-                  <div class="flex flex-wrap gap-2">
-                    <button type="button" id="save_invoice_btn" class="btn btn-primary btn-soft btn-sm" onclick="saveInvoice({{ $appointment->id }})">
-                      <span class="loading loading-spinner loading-sm" style="display: none;"></span>
-                      Save Invoice
-                    </button>
-                    <button type="button" id="send_invoice_btn" class="btn btn-primary btn-outline btn-sm" onclick="sendInvoice({{ $appointment->id }})">
-                      <span class="loading loading-spinner loading-sm" style="display: none;"></span>
-                      Send Invoice
-                    </button>
-                    <button type="button" id="pay_invoice_btn" class="btn btn-secondary btn-soft btn-sm" onclick="payInPerson({{ $appointment->id }})">
-                      <span class="loading loading-spinner loading-sm" style="display: none;"></span>
-                      Pay In Person
-                    </button>
-                  </div>
-                  @endif
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      @endif
     </div>
     <div class="lg:col-span-7 2xl:col-span-7">
       <div class="card card-border bg-base-100">
@@ -9753,237 +9094,6 @@
                   <span>Confirming the process will mark the appointment as completed.</span>
                 </div>
               @endif
-            </div>
-          </div>
-        </div>
-      </div>
-      @endif
-      @if ($appointment->status === 'completed')
-      <div class="card card-border bg-base-100 mt-3">
-        <div class="card-body gap-0">
-          <div class="bg-base-200 rounded-box collapse collapse-arrow">
-            <input aria-label="Collapse trigger" type="checkbox" name="accordion-multiple" />
-            <div class="collapse-title font-medium py-1">Checkout Info</div>
-            <div class="collapse-content bg-base-100">
-              <div class="mt-4 grid grid-cols-1 gap-6 xl:grid-cols-3">
-                <fieldset class="fieldset">
-                  <legend class="fieldset-legend">Date*</legend>
-                  <input class="input input-bordered w-full" placeholder="Select date" id="checkout_date" name="checkout_date" type="date" value="{{ $checkout->date ?? ($appointment->date ?? '') }}"/>
-                </fieldset>
-                <fieldset class="fieldset">
-                  <legend class="fieldset-legend">Start Time</legend>
-                  <input class="input input-bordered w-full" placeholder="Select time" id="checkout_start_time" name="checkout_start_time" type="time" min="09:00" max="18:00" value="{{ $appointment->start_time ? \Carbon\Carbon::createFromFormat('H:i:s', $appointment->start_time)->format('H:i') : '' }}" disabled/>
-                </fieldset>
-                <fieldset class="fieldset">
-                  <legend class="fieldset-legend">Pickup Time</legend>
-                  <input class="input input-bordered w-full" placeholder="Select time" id="checkout_pickup_time" name="checkout_pickup_time" type="time" min="09:00" max="18:00" value="{{ $appointment->end_time ? \Carbon\Carbon::createFromFormat('H:i:s', $appointment->end_time)->format('H:i') : '' }}" disabled/>
-                </fieldset>
-              </div>
-              @if (isGroomingService($appointment->service) && $process && $process->notes)
-              <div class="mt-4">
-                <fieldset class="fieldset">
-                  <legend class="fieldset-legend">Process Notes (from In Progress)</legend>
-                  <div class="textarea textarea-bordered w-full" style="background-color: #181c20; white-space: pre-wrap; word-wrap: break-word; min-height: 80px; padding: 0.75rem; color: #ffffff;">{{ $process->notes }}</div>
-                </fieldset>
-              </div>
-              @endif
-              <div class="mt-4">
-                <fieldset class="fieldset">
-                  <legend class="fieldset-legend">Notes</legend>
-                  <textarea class="textarea textarea-bordered w-full" placeholder="Add any notes about the checkout process..." id="checkout_notes" name="checkout_notes" rows="3">{{ $checkout->notes ?? '' }}</textarea>
-                </fieldset>
-              </div>
-              @if (isPrivateTrainingService($appointment->service))
-              @php
-                $descriptionNeeds = $checkedIn && $checkedIn->flows && isset($checkedIn->flows['description_needs']) ? $checkedIn->flows['description_needs'] : '';
-              @endphp
-              @if($descriptionNeeds)
-              <div class="mt-4">
-                <p class="font-medium mb-2">Customer Goal:</p>
-                <div class="mb-2 ms-4">
-                  <p class="text-sm text-base-content/70 whitespace-pre-wrap">{{ $descriptionNeeds }}</p>
-                </div>
-              </div>
-              @endif
-              @endif
-              <hr class="mt-5" style="color: lightgray"/>
-              <div class="mt-4 space-y-2 text-sm">
-                @if (isPrivateTrainingService($appointment->service))
-                @if(!empty($lastAppointmentRatings))
-                <div>
-                  <p class="font-medium mb-2">Star Rating from Last Appointment:</p>
-                  @php
-                    $obedienceCommands = ['sit', 'down', 'stay', 'come', 'loose_leash_walking'];
-                  @endphp
-                  <div class="mb-4 ms-4 space-y-3">
-                    @foreach($obedienceCommands as $command)
-                      @php
-                        $commandLabel = ucwords(str_replace('_', ' ', $command));
-                        $lastRating = isset($lastAppointmentRatings[$command]) ? (int)$lastAppointmentRatings[$command] : 0;
-                      @endphp
-                      <div class="flex items-center gap-2">
-                        <p class="text-sm font-medium mb-1">{{ $commandLabel }}:</p>
-                        <div class="flex items-center gap-1">
-                          @for($i = 0; $i <= 5; $i++)
-                            <span class="iconify lucide--star size-5" style="color: {{ $i <= $lastRating ? '#fbbf24' : '#d1d5db' }};"></span>
-                          @endfor
-                        </div>
-                      </div>
-                    @endforeach
-                  </div>
-                </div>
-                <hr class="my-4" style="color: lightgray"/>
-                @endif
-                <div>
-                  <div class="flex items-center gap-3 mb-2">
-                    <p class="font-medium" style="flex-grow: unset">Basic obedience (5-star rating)</p>
-                    <div class="dropdown dropdown-end dropdown-hover">
-                      <div tabindex="0" role="button" class="cursor-help">
-                        <span class="iconify lucide--info size-4 mt-1"></span>
-                      </div>
-                      <div tabindex="0" class="dropdown-content z-[1] menu p-4 shadow bg-base-100 rounded-box w-80 border border-base-300" style="left: -10px">
-                        <div class="space-y-2 text-xs">
-                          <p class="font-semibold text-sm mb-2">5 Star Rating System:</p>
-                          <p><span class="font-medium">0 star</span> – pet does not recognize command</p>
-                          <p><span class="font-medium">1 star</span> – pet has infrequent response to command in a quiet environment</p>
-                          <p><span class="font-medium">2 stars</span> – pet has intermittent response to command but highly distracted</p>
-                          <p><span class="font-medium">3 stars</span> – pet has regular response to command but effected by distractions</p>
-                          <p><span class="font-medium">4 stars</span> – pet has reliable response to command but has some challenges when distracted</p>
-                          <p><span class="font-medium">5 stars</span> – pet has dependable response to command regardless of environment</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  @php
-                    $obedienceRatings = $checkout && $checkout->flows && isset($checkout->flows['obedience_ratings']) ? $checkout->flows['obedience_ratings'] : [];
-                    $obedienceCommands = ['sit', 'down', 'stay', 'come', 'loose_leash_walking'];
-                    $starDescriptions = [
-                      0 => 'pet does not recognize command',
-                      1 => 'pet has infrequent response to command in a quiet environment',
-                      2 => 'pet has intermittent response to command but highly distracted',
-                      3 => 'pet has regular response to command but effected by distractions',
-                      4 => 'pet has reliable response to command but has some challenges when distracted',
-                      5 => 'pet has dependable response to command regardless of environment'
-                    ];
-                  @endphp
-                  <div class="mb-2 ms-4 space-y-3">
-                    @foreach($obedienceCommands as $command)
-                      @php
-                        $commandLabel = ucwords(str_replace('_', ' ', $command));
-                        $currentRating = isset($obedienceRatings[$command]) ? $obedienceRatings[$command] : 0;
-                      @endphp
-                      <div class="flex items-center gap-2">
-                        <p class="text-sm font-medium mb-1">{{ $commandLabel }}:</p>
-                        <div class="flex items-center gap-1 star-rating-container" data-rating="{{ $currentRating }}" data-command="{{ $command }}">
-                          @for($i = 1; $i <= 5; $i++)
-                            <input type="radio" class="hidden" name="obedience_rating_{{ $command }}" value="{{ $i }}" id="rating_{{ $command }}_{{ $i }}" {{ $currentRating == $i ? 'checked' : '' }} />
-                            <label for="rating_{{ $command }}_{{ $i }}" class="cursor-pointer">
-                              <span class="iconify lucide--star size-5 star-rating-icon" data-star-value="{{ $i }}" data-command="{{ $command }}" style="color: {{ $i <= $currentRating ? '#fbbf24' : '#d1d5db' }}; transition: color 0.2s;"></span>
-                            </label>
-                          @endfor
-                        </div>
-                      </div>
-                    @endforeach
-                  </div>
-                </div>
-                @else
-                <div>
-                  <p class="font-medium mb-2">Rating:</p>
-                  <div class="mb-2 ms-4">
-                    <div class="space-y-2">
-                      <label class="flex items-center gap-2">
-                        <input type="radio" class="radio radio-xs" name="rating"
-                          value="green" {{ $checkout && $checkout->flows && isset($checkout->flows['rating']) && $checkout->flows['rating'] === 'green' ? 'checked' : '' }} />
-                        <span class="text-sm">Green (no issues)</span>
-                      </label>
-                      <label class="flex items-center gap-2">
-                        <input type="radio" class="radio radio-xs" name="rating"
-                          value="yellow" {{ $checkout && $checkout->flows && isset($checkout->flows['rating']) && $checkout->flows['rating'] === 'yellow' ? 'checked' : '' }} />
-                        <span class="text-sm">Yellow (mild reaction to {{ strtolower($appointment->service->name) }}, specifically</span>
-                        <input placeholder="Touch to write" id="rating_yellow_detail" name="rating_yellow_detail" class="input input-ghost input-xs" aria-label="Input" type="text" style="max-width: 220px;" value="{{ $checkout && $checkout->flows && isset($checkout->flows['rating_yellow_detail']) ? $checkout->flows['rating_yellow_detail'] : '' }}"/>
-                        <span class="text-sm">)</span>
-                      </label>
-                      <label class="flex items-center gap-2">
-                        <input type="radio" class="radio radio-xs" name="rating"
-                          value="purple" {{ $checkout && $checkout->flows && isset($checkout->flows['rating']) && $checkout->flows['rating'] === 'purple' ? 'checked' : '' }} />
-                        <span class="text-sm">Purple (reacts to {{ strtolower($appointment->service->name) }}, go slow with</span>
-                        <input placeholder="Touch to write" id="rating_purple_detail" name="rating_purple_detail" class="input input-ghost input-xs" aria-label="Input" type="text" style="max-width: 220px;" value="{{ $checkout && $checkout->flows && isset($checkout->flows['rating_purple_detail']) ? $checkout->flows['rating_purple_detail'] : '' }}"/>
-                        <span class="text-sm">)</span>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-                @endif
-                <div>
-                  <p class="font-medium mb-2">Pictures:</p>
-                  <div class="mb-2 ms-4">
-                    <input aria-label="File" id="checkout_pictures" name="checkout_pictures[]" class="file-input w-full" type="file" multiple accept="image/*" />
-                  </div>
-                  @if($checkout && $checkout->flows && isset($checkout->flows['pictures']) && is_array($checkout->flows['pictures']))
-                  <div class="mt-2 ms-4 flex flex-wrap gap-2">
-                    @foreach($checkout->flows['pictures'] as $picture)
-                    <div class="relative">
-                      <img src="{{ asset('storage/checkouts/' . $picture) }}" alt="Checkout Picture" class="w-24 h-24 object-cover rounded-lg border">
-                    </div>
-                    @endforeach
-                  </div>
-                  @endif
-                </div>
-                <div class="mt-3">
-                  <p class="font-medium mb-2">Notes for {{ $appointment->service->name }}:</p>
-                  <div class="mb-2 ms-4">
-                    <textarea class="textarea textarea-bordered w-full" placeholder="Add any notes about the {{ strtolower($appointment->service->name) }}..." id="checkout_service_notes" name="checkout_service_notes" rows="3">{{ $checkout && $checkout->flows && isset($checkout->flows['service_notes']) ? $checkout->flows['service_notes'] : '' }}</textarea>
-                  </div>
-                </div>
-              </div>
-              @if (isPrivateTrainingService($appointment->service))
-              <hr class="mt-5" style="color: lightgray"/>
-              <div class="mt-4 text-sm space-y-4">
-                <div class="divider my-4"></div>
-                <div>
-                  <p class="font-medium mb-2">Current ratings:</p>
-                  <div class="mb-2 ms-4">
-                    <textarea class="textarea textarea-bordered w-full" id="training_current_ratings" name="training_current_ratings" rows="3" placeholder="Enter current ratings summary...">{{ $checkout && $checkout->flows && isset($checkout->flows['training_current_ratings']) ? $checkout->flows['training_current_ratings'] : '' }}</textarea>
-                  </div>
-                </div>
-                <div>
-                  <p class="font-medium mb-2">Goal for next lesson:</p>
-                  <div class="mb-2 ms-4">
-                    <input class="input input-bordered w-full" id="training_targets" name="training_targets" type="text" placeholder="Enter targets for next lesson..." value="{{ $checkout && $checkout->flows && isset($checkout->flows['training_targets']) ? $checkout->flows['training_targets'] : '' }}" />
-                  </div>
-                </div>
-                <div>
-                  <p class="font-medium mb-2">Homework for owner:</p>
-                  <div class="mb-2 ms-4">
-                    <textarea class="textarea textarea-bordered w-full" id="training_homework" name="training_homework" rows="3" placeholder="Enter homework for owner...">{{ $checkout && $checkout->flows && isset($checkout->flows['training_homework']) ? $checkout->flows['training_homework'] : '' }}</textarea>
-                  </div>
-                </div>
-              </div>
-              @endif
-              <hr class="mt-5" style="color: lightgray"/>
-              <div class="mt-4 text-sm space-y-4">
-                <div>
-                  <p class="font-medium mb-2">Behavior:</p>
-                  <div class="mb-2 ms-4 pet-behavior">
-                    @php
-                      $selectedBehaviorIds = is_array($appointment->pet->pet_behavior_id ?? null)
-                        ? collect($appointment->pet->pet_behavior_id)->map(fn ($id) => (string) $id)->toArray()
-                        : (!empty($appointment->pet->pet_behavior_id) ? [(string) $appointment->pet->pet_behavior_id] : []);
-                    @endphp
-                    <select class="select w-full" id="pet_behavior_id" name="checkout_behavior_ids[]" multiple>
-                      @foreach($petBehaviors as $behavior)
-                        <option
-                          value="{{ $behavior->id }}"
-                          data-icon-b64="{{ base64_encode($behavior->icon?->icon ?? '') }}"
-                          {{ in_array((string) $behavior->id, $selectedBehaviorIds, true) ? 'selected' : '' }}
-                        >
-                          {{ $behavior->description }}
-                        </option>
-                      @endforeach
-                    </select>
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
         </div>

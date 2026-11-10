@@ -356,64 +356,31 @@
             <input aria-label="Collapse trigger" type="checkbox" name="accordion-multiple" />
             <div class="collapse-title font-medium py-1">Checkout Info</div>
             <div class="collapse-content bg-base-100">
-              <div class="mt-4 grid grid-cols-1 gap-6 xl:grid-cols-2">
+              {{-- Same Checkout Info structure as the Boarding completed page. --}}
+              @php
+                $checkoutServiceName = $appointment->package_name ?? ($appointment->service->name ?? 'Package');
+              @endphp
+              <div class="mt-4 grid grid-cols-1 gap-6 xl:grid-cols-3">
                 <fieldset class="fieldset">
                   <legend class="fieldset-legend">Date*</legend>
-                  <input class="input input-bordered w-full" placeholder="Select date" id="checkout_date" name="checkout_date" type="date" value="{{ $checkout->date ?? ($appointment->date ?? '') }}"/>
+                  <input class="input input-bordered w-full" placeholder="Select date" id="checkout_date" name="checkout_date" type="date" value="{{ now()->toDateString() }}"/>
                 </fieldset>
                 <fieldset class="fieldset">
-                  <legend class="fieldset-legend">Pickup Time*</legend>
-                  <input class="input input-bordered w-full" placeholder="Select time" id="checkout_pickup_time" name="checkout_pickup_time" type="time" min="09:00" max="18:00" value="{{ $appointment->end_time ? \Carbon\Carbon::createFromFormat('H:i:s', $appointment->end_time)->format('H:i') : '' }}"/>
+                  <legend class="fieldset-legend">Start Time</legend>
+                  <input class="input input-bordered w-full" placeholder="Select time" id="checkout_start_time" name="checkout_start_time" type="time" min="09:00" max="18:00" value="{{ $appointment->start_time ? \Carbon\Carbon::createFromFormat('H:i:s', $appointment->start_time)->format('H:i') : '' }}" disabled/>
                 </fieldset>
-              </div>
-              <div class="mt-4">
                 <fieldset class="fieldset">
-                  <legend class="fieldset-legend">Notes</legend>
-                  <textarea class="textarea textarea-bordered w-full" placeholder="Add any notes about the checkout process..." id="checkout_notes" name="checkout_notes" rows="3">{{ $checkout->notes ?? '' }}</textarea>
+                  <legend class="fieldset-legend">Pickup Time</legend>
+                  <input class="input input-bordered w-full" placeholder="Select time" id="checkout_pickup_time" name="checkout_pickup_time" type="time" min="09:00" max="18:00" value="{{ now()->format('H:i') }}" disabled/>
                 </fieldset>
               </div>
               <hr class="mt-5" style="color: lightgray"/>
               <div class="mt-4 space-y-2 text-sm">
-                <div>
-                  <p class="font-medium mb-2">Rating:</p>
-                  <div class="mb-2 ms-4">
-                    <div class="space-y-2">
-                      <label class="flex items-center gap-2">
-                        <input type="radio" class="radio radio-xs" name="rating"
-                          value="green" {{ $checkout && $checkout->flows && isset($checkout->flows['rating']) && $checkout->flows['rating'] === 'green' ? 'checked' : '' }} />
-                        <span class="text-sm">Green (no issues)</span>
-                      </label>
-                      <label class="flex items-center gap-2">
-                        <input type="radio" class="radio radio-xs" name="rating"
-                          value="yellow" {{ $checkout && $checkout->flows && isset($checkout->flows['rating']) && $checkout->flows['rating'] === 'yellow' ? 'checked' : '' }} />
-                        <span class="text-sm">Yellow (mild reaction to package, specifically</span>
-                        <input placeholder="Touch to write" id="rating_yellow_detail" name="rating_yellow_detail" class="input input-ghost input-xs" aria-label="Input" type="text" style="max-width: 220px;" value="{{ $checkout && $checkout->flows && isset($checkout->flows['rating_yellow_detail']) ? $checkout->flows['rating_yellow_detail'] : '' }}"/>
-                        <span class="text-sm">)</span>
-                      </label>
-                      <label class="flex items-center gap-2">
-                        <input type="radio" class="radio radio-xs" name="rating"
-                          value="purple" {{ $checkout && $checkout->flows && isset($checkout->flows['rating']) && $checkout->flows['rating'] === 'purple' ? 'checked' : '' }} />
-                        <span class="text-sm">Purple (reacts to package, go slow with</span>
-                        <input placeholder="Touch to write" id="rating_purple_detail" name="rating_purple_detail" class="input input-ghost input-xs" aria-label="Input" type="text" style="max-width: 220px;" value="{{ $checkout && $checkout->flows && isset($checkout->flows['rating_purple_detail']) ? $checkout->flows['rating_purple_detail'] : '' }}"/>
-                        <span class="text-sm">)</span>
-                      </label>
-                    </div>
+                <div class="mt-3">
+                  <p class="font-medium mb-2">Notes for {{ $checkoutServiceName }}:</p>
+                  <div class="mb-2">
+                    <textarea class="textarea textarea-bordered w-full" placeholder="Add any notes about the {{ strtolower($checkoutServiceName) }}..." id="checkout_service_notes" name="checkout_service_notes" rows="3">{{ $checkout && $checkout->flows && isset($checkout->flows['service_notes']) ? $checkout->flows['service_notes'] : '' }}</textarea>
                   </div>
-                </div>
-                <div>
-                  <p class="font-medium mb-2">Pictures:</p>
-                  <div class="mb-2 ms-4">
-                    <input aria-label="File" id="checkout_pictures" name="checkout_pictures[]" class="file-input w-full" type="file" multiple accept="image/*" />
-                  </div>
-                  @if($checkout && $checkout->flows && isset($checkout->flows['pictures']) && is_array($checkout->flows['pictures']))
-                  <div class="mt-2 ms-4 flex flex-wrap gap-2">
-                    @foreach($checkout->flows['pictures'] as $picture)
-                    <div class="relative">
-                      <img src="{{ asset('storage/checkouts/' . $picture) }}" alt="Checkout Picture" class="w-24 h-24 object-cover rounded-lg border">
-                    </div>
-                    @endforeach
-                  </div>
-                  @endif
                 </div>
               </div>
             </div>
@@ -734,13 +701,7 @@
   function confirmCompleted() {
     const date = $('#checkout_date').val();
     const pickupTime = $('#checkout_pickup_time').val();
-    const notes = $('#checkout_notes').val();
-    const pictures = $('#checkout_pictures').length ? $('#checkout_pictures')[0].files : [];
-
-    const ratingElement = $('input[name="rating"]:checked');
-    const rating = ratingElement.length ? ratingElement.val() : null;
-    const ratingYellowDetail = $('#rating_yellow_detail').length ? $('#rating_yellow_detail').val() : null;
-    const ratingPurpleDetail = $('#rating_purple_detail').length ? $('#rating_purple_detail').val() : null;
+    const serviceNotes = $('#checkout_service_notes').val();
 
     if (!date) {
       $('#alert_message').text('Please select a checkout date.');
@@ -759,23 +720,15 @@
     formData.append('_token', '{{ csrf_token() }}');
     formData.append('date', date);
     formData.append('pickup_time', pickupTime);
-    formData.append('notes', notes || '');
+    formData.append('actual_checkout_at', date + ' ' + pickupTime + ':00');
+    formData.append('notes', '');
 
     const flows = {};
-
-    if (rating !== null) {
-      flows.rating = rating;
-      if (ratingYellowDetail) flows.rating_yellow_detail = ratingYellowDetail;
-      if (ratingPurpleDetail) flows.rating_purple_detail = ratingPurpleDetail;
+    if (serviceNotes) {
+      flows.service_notes = serviceNotes;
     }
 
     formData.append('flows', JSON.stringify(flows));
-
-    if (pictures.length > 0) {
-      for (let i = 0; i < pictures.length; i++) {
-        formData.append('pictures[]', pictures[i]);
-      }
-    }
 
     // Send via AJAX
     $.ajax({
