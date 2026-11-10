@@ -453,7 +453,7 @@
         <div class="tab-content border-base-200 bg-base-100 px-4 py-6">
           @php
             $questionnaire = $questionnaires->firstWhere('service_category_id', $category->id) ?? null;
-            $questions_answers = $questionnaire ? json_decode($questionnaire->questions_answers, true) : [];
+            $questions_answers = $questionnaire ? (json_decode($questionnaire->questions_answers, true) ?? []) : [];
           @endphp
           @if (stripos($category->name, 'groom') !== false)
             <div class="text-sm space-y-4">
@@ -462,17 +462,17 @@
                 <div class="mb-2 space-y-1 ms-4">
                   <label class="flex items-center gap-2">
                     <input type="radio" class="radio radio-xs" name="groomed_before" value="yes"
-                      {{ $questionnaire && $questions_answers['groomed_before'] === 'yes' ? 'checked' : '' }} />
+                      {{ $questionnaire && ($questions_answers['groomed_before'] ?? null) === 'yes' ? 'checked' : '' }} />
                     <span class="text-sm">Yes</span>
                   </label>
                   <label class="flex items-center gap-2">
                     <input type="radio" class="radio radio-xs" name="groomed_before" value="no"
-                      {{ $questionnaire && $questions_answers['groomed_before'] === 'no' ? 'checked' : '' }} />
+                      {{ $questionnaire && ($questions_answers['groomed_before'] ?? null) === 'no' ? 'checked' : '' }} />
                     <span class="text-sm">No</span>
                   </label>
                   <fieldset class="fieldset">
                     <legend class="fieldset-legend">If yes, tell us where you have groomed previously</legend>
-                    <textarea placeholder="Type here" id="groomed_before_detail" class="textarea w-full questionnaire-detail" value="{{ $questionnaire ? $questions_answers['groomed_before_detail'] : '' }}">{{ $questionnaire ? $questions_answers['groomed_before_detail'] : '' }}</textarea>
+                    <textarea placeholder="Type here" id="groomed_before_detail" class="textarea w-full questionnaire-detail" value="{{ $questionnaire ? ($questions_answers['groomed_before_detail'] ?? null) : '' }}">{{ $questionnaire ? ($questions_answers['groomed_before_detail'] ?? null) : '' }}</textarea>
                   </fieldset>
                 </div>
               </div>
@@ -486,17 +486,17 @@
                         <div class="space-y-1 ms-4">
                           <label class="flex items-center gap-2">
                             <input type="radio" class="radio radio-xs" name="social_people"
-                              value="My dog loves people" {{ $questionnaire && $questions_answers['social_people'] === 'My dog loves people' ? 'checked' : '' }} />
+                              value="My dog loves people" {{ $questionnaire && ($questions_answers['social_people'] ?? null) === 'My dog loves people' ? 'checked' : '' }} />
                             <span class="text-sm">My dog loves people</span>
                           </label>
                           <label class="flex items-center gap-2">
                             <input type="radio" class="radio radio-xs" name="social_people"
-                              value="My dog can be shy around new people" {{ $questionnaire && $questions_answers['social_people'] === 'My dog can be shy around new people' ? 'checked' : '' }} />
+                              value="My dog can be shy around new people" {{ $questionnaire && ($questions_answers['social_people'] ?? null) === 'My dog can be shy around new people' ? 'checked' : '' }} />
                             <span class="text-sm">My dog can be shy around new people</span>
                           </label>
                           <label class="flex items-center gap-2">
                             <input type="radio" class="radio radio-xs" name="social_people"
-                              value="My dog prefers not to meet people" {{ $questionnaire && $questions_answers['social_people'] === 'My dog prefers not to meet people' ? 'checked' : '' }} />
+                              value="My dog prefers not to meet people" {{ $questionnaire && ($questions_answers['social_people'] ?? null) === 'My dog prefers not to meet people' ? 'checked' : '' }} />
                             <span class="text-sm">My dog prefers not to meet people</span>
                           </label>
                         </div>
@@ -506,17 +506,17 @@
                         <div class="space-y-1 ms-4">
                           <label class="flex items-center gap-2">
                             <input type="radio" class="radio radio-xs" name="social_pets"
-                              value="My dog loves other pets" {{ $questionnaire && $questions_answers['social_pets'] === 'My dog loves other pets' ? 'checked' : '' }} />
+                              value="My dog loves other pets" {{ $questionnaire && ($questions_answers['social_pets'] ?? null) === 'My dog loves other pets' ? 'checked' : '' }} />
                             <span class="text-sm">My dog loves other pets</span>
                           </label>
                           <label class="flex items-center gap-2">
                             <input type="radio" class="radio radio-xs" name="social_pets"
-                              value="Can be selective about making new friends" {{ $questionnaire && $questions_answers['social_pets'] === 'Can be selective about making new friends' ? 'checked' : '' }} />
+                              value="Can be selective about making new friends" {{ $questionnaire && ($questions_answers['social_pets'] ?? null) === 'Can be selective about making new friends' ? 'checked' : '' }} />
                             <span class="text-sm">Can be selective about making new friends</span>
                           </label>
                           <label class="flex items-center gap-2">
                             <input type="radio" class="radio radio-xs" name="social_pets"
-                              value="Prefers to be alone" {{ $questionnaire && $questions_answers['social_pets'] === 'Prefers to be alone' ? 'checked' : '' }} />
+                              value="Prefers to be alone" {{ $questionnaire && ($questions_answers['social_pets'] ?? null) === 'Prefers to be alone' ? 'checked' : '' }} />
                             <span class="text-sm">Prefers to be alone</span>
                           </label>
                         </div>
@@ -527,11 +527,11 @@
                     <legend class="fieldset-legend">My dog is crate trained*</legend>
                     <div class="space-y-1 ms-4">
                       <label class="flex items-center gap-2">
-                        <input type="radio" class="radio radio-xs" name="crate_trained" value="yes" {{ $questionnaire && $questions_answers['crate_trained'] === 'yes' ? 'checked' : '' }} />
+                        <input type="radio" class="radio radio-xs" name="crate_trained" value="yes" {{ $questionnaire && ($questions_answers['crate_trained'] ?? null) === 'yes' ? 'checked' : '' }} />
                         <span class="text-sm">Yes</span>
                       </label>
                       <label class="flex items-center gap-2">
-                        <input type="radio" class="radio radio-xs" name="crate_trained" value="no" {{ $questionnaire && $questions_answers['crate_trained'] === 'no' ? 'checked' : '' }} />
+                        <input type="radio" class="radio radio-xs" name="crate_trained" value="no" {{ $questionnaire && ($questions_answers['crate_trained'] ?? null) === 'no' ? 'checked' : '' }} />
                         <span class="text-sm">No</span>
                       </label>
                     </div>
@@ -543,16 +543,16 @@
                   <p class="font-medium mb-2">3. Are there any physical issues or concerns else?*</p>
                   <div class="mb-2 space-y-1 ms-4">
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="physical_issues" value="yes" {{ $questionnaire && $questions_answers['physical_issues'] === 'yes' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="physical_issues" value="yes" {{ $questionnaire && ($questions_answers['physical_issues'] ?? null) === 'yes' ? 'checked' : '' }} />
                       <span class="text-sm">Yes</span>
                     </label>
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="physical_issues" value="no" {{ $questionnaire && $questions_answers['physical_issues'] === 'no' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="physical_issues" value="no" {{ $questionnaire && ($questions_answers['physical_issues'] ?? null) === 'no' ? 'checked' : '' }} />
                       <span class="text-sm">No</span>
                     </label>
                     <fieldset class="fieldset">
                       <legend class="fieldset-legend">If yes, please tell us about them</legend>
-                      <textarea placeholder="Type here" id="physical_issues_detail" class="textarea w-full questionnaire-detail" value="{{ $questionnaire ? $questions_answers['physical_issues_detail'] : '' }}">{{ $questionnaire ? $questions_answers['physical_issues_detail'] : '' }}</textarea>
+                      <textarea placeholder="Type here" id="physical_issues_detail" class="textarea w-full questionnaire-detail" value="{{ $questionnaire ? ($questions_answers['physical_issues_detail'] ?? null) : '' }}">{{ $questionnaire ? ($questions_answers['physical_issues_detail'] ?? null) : '' }}</textarea>
                     </fieldset>
                   </div>
                 </div>
@@ -560,16 +560,16 @@
                   <p class="font-medium mb-2">4. Is your dog taking any medications?*</p>
                   <div class="mb-2 space-y-1 ms-4">
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="medications" value="yes" {{ $questionnaire && $questions_answers['medications'] === 'yes' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="medications" value="yes" {{ $questionnaire && ($questions_answers['medications'] ?? null) === 'yes' ? 'checked' : '' }} />
                       <span class="text-sm">Yes</span>
                     </label>
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="medications" value="no" {{ $questionnaire && $questions_answers['medications'] === 'no' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="medications" value="no" {{ $questionnaire && ($questions_answers['medications'] ?? null) === 'no' ? 'checked' : '' }} />
                       <span class="text-sm">No</span>
                     </label>
                     <fieldset class="fieldset">
                       <legend class="fieldset-legend">If yes, tell us what medications your dog is taking</legend>
-                      <textarea placeholder="Type here" id="medications_detail" class="textarea w-full questionnaire-detail" value="{{ $questionnaire ? $questions_answers['medications_detail'] : '' }}">{{ $questionnaire ? $questions_answers['medications_detail'] : '' }}</textarea>
+                      <textarea placeholder="Type here" id="medications_detail" class="textarea w-full questionnaire-detail" value="{{ $questionnaire ? ($questions_answers['medications_detail'] ?? null) : '' }}">{{ $questionnaire ? ($questions_answers['medications_detail'] ?? null) : '' }}</textarea>
                     </fieldset>
                   </div>
                 </div>
@@ -577,7 +577,7 @@
               <div>
                 <p class="font-medium mb-2">5. Is there anything else you want us to know about your dog?</p>
                 <fieldset class="fieldset ms-4">
-                  <textarea placeholder="Type here" id="additional_note" class="textarea w-full questionnaire-detail" value="{{ $questionnaire ? $questions_answers['additional_note'] : '' }}">{{ $questionnaire ? $questions_answers['additional_note'] : '' }}</textarea>
+                  <textarea placeholder="Type here" id="additional_note" class="textarea w-full questionnaire-detail" value="{{ $questionnaire ? ($questions_answers['additional_note'] ?? null) : '' }}">{{ $questionnaire ? ($questions_answers['additional_note'] ?? null) : '' }}</textarea>
                 </fieldset>
               </div>
               <div>
@@ -610,17 +610,17 @@
                   <div class="space-y-1 ms-4">
                     <label class="flex items-center gap-2">
                       <input type="radio" class="radio radio-xs" name="daycare_around_people"
-                        value="My dog loves people" {{ $questionnaire && $questions_answers['social_people'] === 'My dog loves people' ? 'checked' : '' }} />
+                        value="My dog loves people" {{ $questionnaire && ($questions_answers['social_people'] ?? null) === 'My dog loves people' ? 'checked' : '' }} />
                       <span class="text-sm">My dog loves people</span>
                     </label>
                     <label class="flex items-center gap-2">
                       <input type="radio" class="radio radio-xs" name="daycare_around_people"
-                        value="My dog can be shy around new people" {{ $questionnaire && $questions_answers['social_people'] === 'My dog can be shy around new people' ? 'checked' : '' }} />
+                        value="My dog can be shy around new people" {{ $questionnaire && ($questions_answers['social_people'] ?? null) === 'My dog can be shy around new people' ? 'checked' : '' }} />
                       <span class="text-sm">My dog can be shy around new people</span>
                     </label>
                     <label class="flex items-center gap-2">
                       <input type="radio" class="radio radio-xs" name="daycare_around_people"
-                        value="My dog prefers not to meet people" {{ $questionnaire && $questions_answers['social_people'] === 'My dog prefers not to meet people' ? 'checked' : '' }} />
+                        value="My dog prefers not to meet people" {{ $questionnaire && ($questions_answers['social_people'] ?? null) === 'My dog prefers not to meet people' ? 'checked' : '' }} />
                       <span class="text-sm">My dog prefers not to meet people</span>
                     </label>
                   </div>
@@ -630,17 +630,17 @@
                   <div class="space-y-1 ms-4">
                     <label class="flex items-center gap-2">
                       <input type="radio" class="radio radio-xs" name="daycare_around_pets"
-                        value="My dog loves other pets" {{ $questionnaire && $questions_answers['social_pets'] === 'My dog loves other pets' ? 'checked' : '' }} />
+                        value="My dog loves other pets" {{ $questionnaire && ($questions_answers['social_pets'] ?? null) === 'My dog loves other pets' ? 'checked' : '' }} />
                       <span class="text-sm">My dog loves other pets</span>
                     </label>
                     <label class="flex items-center gap-2">
                       <input type="radio" class="radio radio-xs" name="daycare_around_pets"
-                        value="Can be selective about making new friends" {{ $questionnaire && $questions_answers['social_pets'] === 'Can be selective about making new friends' ? 'checked' : '' }} />
+                        value="Can be selective about making new friends" {{ $questionnaire && ($questions_answers['social_pets'] ?? null) === 'Can be selective about making new friends' ? 'checked' : '' }} />
                       <span class="text-sm">Can be selective about making new friends</span>
                     </label>
                     <label class="flex items-center gap-2">
                       <input type="radio" class="radio radio-xs" name="daycare_around_pets"
-                        value="Prefers to be alone" {{ $questionnaire && $questions_answers['social_pets'] === 'Prefers to be alone' ? 'checked' : '' }} />
+                        value="Prefers to be alone" {{ $questionnaire && ($questions_answers['social_pets'] ?? null) === 'Prefers to be alone' ? 'checked' : '' }} />
                       <span class="text-sm">Prefers to be alone</span>
                     </label>
                   </div>
@@ -649,11 +649,11 @@
                   <p class="font-medium mb-2">My dog is crate trained*</p>
                   <div class="ms-4 flex items-center gap-4">
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="daycare_is_crate_trained" value="yes" {{ $questionnaire && $questions_answers['crate_trained'] === 'yes' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="daycare_is_crate_trained" value="yes" {{ $questionnaire && ($questions_answers['crate_trained'] ?? null) === 'yes' ? 'checked' : '' }} />
                       <span class="text-sm">Yes</span>
                     </label>
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="daycare_is_crate_trained" value="no" {{ $questionnaire && $questions_answers['crate_trained'] === 'no' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="daycare_is_crate_trained" value="no" {{ $questionnaire && ($questions_answers['crate_trained'] ?? null) === 'no' ? 'checked' : '' }} />
                       <span class="text-sm">No</span>
                     </label>
                   </div>
@@ -662,11 +662,11 @@
                   <p class="font-medium mb-2">My dog visits dog parks*</p>
                   <div class="ms-4 flex items-center gap-4">
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="daycare_visit_parks" value="yes" {{ $questionnaire && $questions_answers['visit_parks'] === 'yes' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="daycare_visit_parks" value="yes" {{ $questionnaire && ($questions_answers['visit_parks'] ?? null) === 'yes' ? 'checked' : '' }} />
                       <span class="text-sm">Yes</span>
                     </label>
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="daycare_visit_parks" value="no" {{ $questionnaire && $questions_answers['visit_parks'] === 'no' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="daycare_visit_parks" value="no" {{ $questionnaire && ($questions_answers['visit_parks'] ?? null) === 'no' ? 'checked' : '' }} />
                       <span class="text-sm">No</span>
                     </label>
                   </div>
@@ -675,11 +675,11 @@
                   <p class="font-medium mb-2">My dog has boarded at another facility*</p>
                   <div class="ms-4 flex items-center gap-4">
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="daycare_boarded" value="yes" {{ $questionnaire && $questions_answers['boarded'] === 'yes' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="daycare_boarded" value="yes" {{ $questionnaire && ($questions_answers['boarded'] ?? null) === 'yes' ? 'checked' : '' }} />
                       <span class="text-sm">Yes</span>
                     </label>
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="daycare_boarded" value="no" {{ $questionnaire && $questions_answers['boarded'] === 'no' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="daycare_boarded" value="no" {{ $questionnaire && ($questions_answers['boarded'] ?? null) === 'no' ? 'checked' : '' }} />
                       <span class="text-sm">No</span>
                     </label>
                   </div>
@@ -688,11 +688,11 @@
                   <p class="font-medium mb-2">My dog has attended daycare at another facility*</p>
                   <div class="ms-4 flex items-center gap-4">
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="daycare_attended" value="yes" {{ $questionnaire && $questions_answers['attended'] === 'yes' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="daycare_attended" value="yes" {{ $questionnaire && ($questions_answers['attended'] ?? null) === 'yes' ? 'checked' : '' }} />
                       <span class="text-sm">Yes</span>
                     </label>
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="daycare_attended" value="no" {{ $questionnaire && $questions_answers['attended'] === 'no' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="daycare_attended" value="no" {{ $questionnaire && ($questions_answers['attended'] ?? null) === 'no' ? 'checked' : '' }} />
                       <span class="text-sm">No</span>
                     </label>
                   </div>
@@ -701,7 +701,7 @@
               <div>
                 <p class="font-medium mb-2">Additional Comments(optional)</p>
                 <fieldset class="fieldset ms-4">
-                  <textarea placeholder="Type here" id="daycare_additional_comments" class="textarea w-full questionnaire-detail" value="{{ $questionnaire ? $questions_answers['additional_comments'] : '' }}">{{ $questionnaire ? $questions_answers['additional_comments'] : '' }}</textarea>
+                  <textarea placeholder="Type here" id="daycare_additional_comments" class="textarea w-full questionnaire-detail" value="{{ $questionnaire ? ($questions_answers['additional_comments'] ?? null) : '' }}">{{ $questionnaire ? ($questions_answers['additional_comments'] ?? null) : '' }}</textarea>
                 </fieldset>
               </div>
               <div>
@@ -734,17 +734,17 @@
                   <div class="space-y-1 ms-4">
                     <label class="flex items-center gap-2">
                       <input type="radio" class="radio radio-xs" name="boarding_around_people"
-                        value="My dog loves people" {{ $questionnaire && $questions_answers['social_people'] === 'My dog loves people' ? 'checked' : '' }} />
+                        value="My dog loves people" {{ $questionnaire && ($questions_answers['social_people'] ?? null) === 'My dog loves people' ? 'checked' : '' }} />
                       <span class="text-sm">My dog loves people</span>
                     </label>
                     <label class="flex items-center gap-2">
                       <input type="radio" class="radio radio-xs" name="boarding_around_people"
-                        value="My dog can be shy around new people" {{ $questionnaire && $questions_answers['social_people'] === 'My dog can be shy around new people' ? 'checked' : '' }} />
+                        value="My dog can be shy around new people" {{ $questionnaire && ($questions_answers['social_people'] ?? null) === 'My dog can be shy around new people' ? 'checked' : '' }} />
                       <span class="text-sm">My dog can be shy around new people</span>
                     </label>
                     <label class="flex items-center gap-2">
                       <input type="radio" class="radio radio-xs" name="boarding_around_people"
-                        value="My dog prefers not to meet people" {{ $questionnaire && $questions_answers['social_people'] === 'My dog prefers not to meet people' ? 'checked' : '' }} />
+                        value="My dog prefers not to meet people" {{ $questionnaire && ($questions_answers['social_people'] ?? null) === 'My dog prefers not to meet people' ? 'checked' : '' }} />
                       <span class="text-sm">My dog prefers not to meet people</span>
                     </label>
                   </div>
@@ -754,17 +754,17 @@
                   <div class="space-y-1 ms-4">
                     <label class="flex items-center gap-2">
                       <input type="radio" class="radio radio-xs" name="boarding_around_pets"
-                        value="My dog loves other pets" {{ $questionnaire && $questions_answers['social_pets'] === 'My dog loves other pets' ? 'checked' : '' }} />
+                        value="My dog loves other pets" {{ $questionnaire && ($questions_answers['social_pets'] ?? null) === 'My dog loves other pets' ? 'checked' : '' }} />
                       <span class="text-sm">My dog loves other pets</span>
                     </label>
                     <label class="flex items-center gap-2">
                       <input type="radio" class="radio radio-xs" name="boarding_around_pets"
-                        value="Can be selective about making new friends" {{ $questionnaire && $questions_answers['social_pets'] === 'Can be selective about making new friends' ? 'checked' : '' }} />
+                        value="Can be selective about making new friends" {{ $questionnaire && ($questions_answers['social_pets'] ?? null) === 'Can be selective about making new friends' ? 'checked' : '' }} />
                       <span class="text-sm">Can be selective about making new friends</span>
                     </label>
                     <label class="flex items-center gap-2">
                       <input type="radio" class="radio radio-xs" name="boarding_around_pets"
-                        value="Prefers to be alone" {{ $questionnaire && $questions_answers['social_pets'] === 'Prefers to be alone' ? 'checked' : '' }} />
+                        value="Prefers to be alone" {{ $questionnaire && ($questions_answers['social_pets'] ?? null) === 'Prefers to be alone' ? 'checked' : '' }} />
                       <span class="text-sm">Prefers to be alone</span>
                     </label>
                   </div>
@@ -773,11 +773,11 @@
                   <p class="font-medium mb-2">My dog is crate trained*</p>
                   <div class="ms-4 flex items-center gap-4">
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="boarding_is_crate_trained" value="yes" {{ $questionnaire && $questions_answers['crate_trained'] === 'yes' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="boarding_is_crate_trained" value="yes" {{ $questionnaire && ($questions_answers['crate_trained'] ?? null) === 'yes' ? 'checked' : '' }} />
                       <span class="text-sm">Yes</span>
                     </label>
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="boarding_is_crate_trained" value="no" {{ $questionnaire && $questions_answers['crate_trained'] === 'no' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="boarding_is_crate_trained" value="no" {{ $questionnaire && ($questions_answers['crate_trained'] ?? null) === 'no' ? 'checked' : '' }} />
                       <span class="text-sm">No</span>
                     </label>
                   </div>
@@ -786,11 +786,11 @@
                   <p class="font-medium mb-2">My dog visits dog parks*</p>
                   <div class="ms-4 flex items-center gap-4">
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="boarding_visit_parks" value="yes" {{ $questionnaire && $questions_answers['visit_parks'] === 'yes' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="boarding_visit_parks" value="yes" {{ $questionnaire && ($questions_answers['visit_parks'] ?? null) === 'yes' ? 'checked' : '' }} />
                       <span class="text-sm">Yes</span>
                     </label>
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="boarding_visit_parks" value="no" {{ $questionnaire && $questions_answers['visit_parks'] === 'no' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="boarding_visit_parks" value="no" {{ $questionnaire && ($questions_answers['visit_parks'] ?? null) === 'no' ? 'checked' : '' }} />
                       <span class="text-sm">No</span>
                     </label>
                   </div>
@@ -799,11 +799,11 @@
                   <p class="font-medium mb-2">My dog has boarded at another facility*</p>
                   <div class="ms-4 flex items-center gap-4">
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="boarding_boarded" value="yes" {{ $questionnaire && $questions_answers['boarded'] === 'yes' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="boarding_boarded" value="yes" {{ $questionnaire && ($questions_answers['boarded'] ?? null) === 'yes' ? 'checked' : '' }} />
                       <span class="text-sm">Yes</span>
                     </label>
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="boarding_boarded" value="no" {{ $questionnaire && $questions_answers['boarded'] === 'no' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="boarding_boarded" value="no" {{ $questionnaire && ($questions_answers['boarded'] ?? null) === 'no' ? 'checked' : '' }} />
                       <span class="text-sm">No</span>
                     </label>
                   </div>
@@ -812,11 +812,11 @@
                   <p class="font-medium mb-2">My dog has attended daycare at another facility*</p>
                   <div class="ms-4 flex items-center gap-4">
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="boarding_attended" value="yes" {{ $questionnaire && $questions_answers['attended'] === 'yes' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="boarding_attended" value="yes" {{ $questionnaire && ($questions_answers['attended'] ?? null) === 'yes' ? 'checked' : '' }} />
                       <span class="text-sm">Yes</span>
                     </label>
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="boarding_attended" value="no" {{ $questionnaire && $questions_answers['attended'] === 'no' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="boarding_attended" value="no" {{ $questionnaire && ($questions_answers['attended'] ?? null) === 'no' ? 'checked' : '' }} />
                       <span class="text-sm">No</span>
                     </label>
                   </div>
@@ -825,7 +825,7 @@
               <div>
                 <p class="font-medium mb-2">Additional Comments(optional)</p>
                 <fieldset class="fieldset ms-4">
-                  <textarea placeholder="Type here" id="boarding_additional_comments" class="textarea w-full questionnaire-detail" value="{{ $questionnaire ? $questions_answers['additional_comments'] : '' }}">{{ $questionnaire ? $questions_answers['additional_comments'] : '' }}</textarea>
+                  <textarea placeholder="Type here" id="boarding_additional_comments" class="textarea w-full questionnaire-detail" value="{{ $questionnaire ? ($questions_answers['additional_comments'] ?? null) : '' }}">{{ $questionnaire ? ($questions_answers['additional_comments'] ?? null) : '' }}</textarea>
                 </fieldset>
               </div>
               <div>
@@ -855,13 +855,13 @@
                 <div>
                   <p class="font-medium mb-2">What is the primary issue?*</p>
                   <div class="mb-2 ms-4">
-                    <input type="text" name="primary_issue" class="input w-full input-sm" value="{{ $questionnaire ? $questions_answers['primary_issue'] : '' }}" />
+                    <input type="text" name="primary_issue" class="input w-full input-sm" value="{{ $questionnaire ? ($questions_answers['primary_issue'] ?? null) : '' }}" />
                   </div>
                 </div>
                 <div>
                   <p class="font-medium mb-2">When does it occur?*</p>
                   <div class="mb-2 ms-4">
-                    <input type="text" name="when_occurs" class="input w-full input-sm" value="{{ $questionnaire ? $questions_answers['when_occurs'] : '' }}" />
+                    <input type="text" name="when_occurs" class="input w-full input-sm" value="{{ $questionnaire ? ($questions_answers['when_occurs'] ?? null) : '' }}" />
                   </div>
                 </div>
               </div>
@@ -870,11 +870,11 @@
                   <p class="font-medium mb-2">Does it happen consistently?*</p>
                   <div class="mb-2 ms-4 flex items-center gap-4">
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="consistent" value="yes" {{ $questionnaire && $questions_answers['consistent'] === 'yes' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="consistent" value="yes" {{ $questionnaire && ($questions_answers['consistent'] ?? null) === 'yes' ? 'checked' : '' }} />
                       <span class="text-sm">Yes</span>
                     </label>
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="consistent" value="no" {{ $questionnaire && $questions_answers['consistent'] === 'no' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="consistent" value="no" {{ $questionnaire && ($questions_answers['consistent'] ?? null) === 'no' ? 'checked' : '' }} />
                       <span class="text-sm">No</span>
                     </label>
                   </div>
@@ -885,7 +885,7 @@
                       <p class="font-medium mb-2">Has your dog received any training?</p>
                       <div class="mb-2 ms-4 flex items-center gap-4">
                         @php
-                          $receivedTraining = $questionnaire ? $questions_answers['received_training'] : '';
+                          $receivedTraining = $questionnaire ? ($questions_answers['received_training'] ?? null) : '';
                           $receivedTrainingArray = $receivedTraining ? (is_array($receivedTraining) ? $receivedTraining : explode(',', $receivedTraining)) : [];
                           $receivedTrainingArray = array_map('trim', $receivedTrainingArray);
                         @endphp
@@ -911,11 +911,11 @@
                       <p class="font-medium mb-2">Did you see improvement after training?*</p>
                       <div class="mb-2 ms-4 flex items-center gap-4">
                         <label class="flex items-center gap-2">
-                          <input type="radio" class="radio radio-xs" name="improvement_after_training" value="yes" {{ $questionnaire && $questions_answers['improvement_after_training'] === 'yes' ? 'checked' : '' }} />
+                          <input type="radio" class="radio radio-xs" name="improvement_after_training" value="yes" {{ $questionnaire && ($questions_answers['improvement_after_training'] ?? null) === 'yes' ? 'checked' : '' }} />
                           <span class="text-sm">Yes</span>
                         </label>
                         <label class="flex items-center gap-2">
-                          <input type="radio" class="radio radio-xs" name="improvement_after_training" value="no" {{ $questionnaire && $questions_answers['improvement_after_training'] === 'no' ? 'checked' : '' }} />
+                          <input type="radio" class="radio radio-xs" name="improvement_after_training" value="no" {{ $questionnaire && ($questions_answers['improvement_after_training'] ?? null) === 'no' ? 'checked' : '' }} />
                           <span class="text-sm">No</span>
                         </label>
                       </div>
@@ -927,13 +927,13 @@
                 <div>
                   <p class="font-medium mb-2">How old was your pet when you received them?*</p>
                   <div class="mb-2 ms-4">
-                    <input name="age_when_received" class="input w-full input-sm" value="{{ $questionnaire ? $questions_answers['age_when_received'] : '' }}" oninput="this.value = this.value.replace(/[^0-9]/g, '')" />
+                    <input name="age_when_received" class="input w-full input-sm" value="{{ $questionnaire ? ($questions_answers['age_when_received'] ?? null) : '' }}" oninput="this.value = this.value.replace(/[^0-9]/g, '')" />
                   </div>
                 </div>
                 <div>
                   <p class="font-medium mb-2">How were they acquired?*</p>
                   <div class="mb-2 ms-4">
-                    <input type="text" name="how_acquired" class="input w-full input-sm" value="{{ $questionnaire ? $questions_answers['how_acquired'] : '' }}" />
+                    <input type="text" name="how_acquired" class="input w-full input-sm" value="{{ $questionnaire ? ($questions_answers['how_acquired'] ?? null) : '' }}" />
                   </div>
                 </div>
               </div>
@@ -942,19 +942,19 @@
                 <div>
                   <p class="font-medium mb-2">Where does your pet sleep?*</p>
                   <div class="mb-2 ms-4">
-                    <input type="text" name="where_sleeps" class="input w-full input-sm" value="{{ $questionnaire ? $questions_answers['where_sleeps'] : '' }}" />
+                    <input type="text" name="where_sleeps" class="input w-full input-sm" value="{{ $questionnaire ? ($questions_answers['where_sleeps'] ?? null) : '' }}" />
                   </div>
                 </div>
                 <div>
                   <p class="font-medium mb-2">What time does your pet wake up in the morning?*</p>
                   <div class="mb-2 ms-4">
-                    <input type="time" name="wake_up_time" class="input w-full input-sm" value="{{ $questionnaire ? $questions_answers['wake_up_time'] : '' }}" />
+                    <input type="time" name="wake_up_time" class="input w-full input-sm" value="{{ $questionnaire ? ($questions_answers['wake_up_time'] ?? null) : '' }}" />
                   </div>
                 </div>
                 <div>
                   <p class="font-medium mb-2">When do they go out to the bathroom?*</p>
                   <div class="mb-2 ms-4">
-                    <input type="text" name="bathroom_time" class="input w-full input-sm" value="{{ $questionnaire ? $questions_answers['bathroom_time'] : '' }}" />
+                    <input type="text" name="bathroom_time" class="input w-full input-sm" value="{{ $questionnaire ? ($questions_answers['bathroom_time'] ?? null) : '' }}" />
                   </div>
                 </div>
               </div>
@@ -963,11 +963,11 @@
                   <p class="font-medium mb-2">Do you take your pet for walks?*</p>
                   <div class="mb-2 ms-4 flex items-center gap-4">
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="takes_walks" value="yes" {{ $questionnaire && $questions_answers['takes_walks'] === 'yes' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="takes_walks" value="yes" {{ $questionnaire && ($questions_answers['takes_walks'] ?? null) === 'yes' ? 'checked' : '' }} />
                       <span class="text-sm">Yes</span>
                     </label>
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="takes_walks" value="no" {{ $questionnaire && $questions_answers['takes_walks'] === 'no' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="takes_walks" value="no" {{ $questionnaire && ($questions_answers['takes_walks'] ?? null) === 'no' ? 'checked' : '' }} />
                       <span class="text-sm">No</span>
                     </label>
                   </div>
@@ -976,11 +976,11 @@
                   <p class="font-medium mb-2">Does your pet have a fenced yard?*</p>
                   <div class="mb-2 ms-4 flex items-center gap-4">
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="fenced_yard" value="yes" {{ $questionnaire && $questions_answers['fenced_yard'] === 'yes' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="fenced_yard" value="yes" {{ $questionnaire && ($questions_answers['fenced_yard'] ?? null) === 'yes' ? 'checked' : '' }} />
                       <span class="text-sm">Yes</span>
                     </label>
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="fenced_yard" value="no" {{ $questionnaire && $questions_answers['fenced_yard'] === 'no' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="fenced_yard" value="no" {{ $questionnaire && ($questions_answers['fenced_yard'] ?? null) === 'no' ? 'checked' : '' }} />
                       <span class="text-sm">No</span>
                     </label>
                   </div>
@@ -990,7 +990,7 @@
                 <div>
                   <p class="font-medium mb-2">What other type of exercise does your pet receive?*</p>
                   <div class="mb-2 ms-4">
-                    <input type="text" name="exercise_type" class="input w-full input-sm" value="{{ $questionnaire ? $questions_answers['exercise_type'] : '' }}" />
+                    <input type="text" name="exercise_type" class="input w-full input-sm" value="{{ $questionnaire ? ($questions_answers['exercise_type'] ?? null) : '' }}" />
                   </div>
                 </div>
               </div>
@@ -999,7 +999,7 @@
                   <p class="font-medium mb-2">When do they eat (AM, PM, both)?*</p>
                   <div class="mb-2 ms-4 flex items-center gap-4">
                     @php
-                      $eatingTimes = $questionnaire ? $questions_answers['eating_times'] : '';
+                      $eatingTimes = $questionnaire ? ($questions_answers['eating_times'] ?? null) : '';
                       $eatingTimesArray = $eatingTimes ? (is_array($eatingTimes) ? $eatingTimes : explode(',', $eatingTimes)) : [];
                       $eatingTimesArray = array_map('trim', $eatingTimesArray);
                       // Handle "both" value by checking both AM and PM
@@ -1024,11 +1024,11 @@
                   <p class="font-medium mb-2">How do they eat?*</p>
                   <div class="mb-2 ms-4 flex items-center gap-4">
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="eating_style" value="all at once" {{ $questionnaire && $questions_answers['eating_style'] === 'all at once' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="eating_style" value="all at once" {{ $questionnaire && ($questions_answers['eating_style'] ?? null) === 'all at once' ? 'checked' : '' }} />
                       <span class="text-sm">All at once</span>
                     </label>
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="eating_style" value="graze" {{ $questionnaire && $questions_answers['eating_style'] === 'graze' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="eating_style" value="graze" {{ $questionnaire && ($questions_answers['eating_style'] ?? null) === 'graze' ? 'checked' : '' }} />
                       <span class="text-sm">Graze</span>
                     </label>
                   </div>
@@ -1039,7 +1039,7 @@
                 <p class="font-medium mb-2">Who else lives in the house?</p>
                 <div class="mb-2 ms-4 flex items-center gap-4">
                   @php
-                    $householdMembers = $questionnaire ? $questions_answers['household_members'] : '';
+                    $householdMembers = $questionnaire ? ($questions_answers['household_members'] ?? null) : '';
                     $householdMembersArray = $householdMembers ? (is_array($householdMembers) ? $householdMembers : explode(',', $householdMembers)) : [];
                     $householdMembersArray = array_map('trim', $householdMembersArray);
                   @endphp
@@ -1061,13 +1061,13 @@
                 <div>
                   <p class="font-medium mb-2">How do they get along?*</p>
                   <div class="mb-2 ms-4">
-                    <input type="text" name="getting_along" class="input w-full input-sm" value="{{ $questionnaire ? $questions_answers['getting_along'] : '' }}" />
+                    <input type="text" name="getting_along" class="input w-full input-sm" value="{{ $questionnaire ? ($questions_answers['getting_along'] ?? null) : '' }}" />
                   </div>
                 </div>
                 <div>
                   <p class="font-medium mb-2">Who else cares for the pet?*</p>
                   <div class="mb-2 ms-4">
-                    <input type="text" name="who_cares_for_pet" class="input w-full input-sm" value="{{ $questionnaire ? $questions_answers['who_cares_for_pet'] : '' }}" />
+                    <input type="text" name="who_cares_for_pet" class="input w-full input-sm" value="{{ $questionnaire ? ($questions_answers['who_cares_for_pet'] ?? null) : '' }}" />
                   </div>
                 </div>
               </div>
@@ -1075,11 +1075,11 @@
                 <p class="font-medium mb-2">Do you work?*</p>
                 <div class="mb-2 ms-4 flex items-center gap-4">
                   <label class="flex items-center gap-2">
-                    <input type="radio" class="radio radio-xs" name="do_you_work" value="yes" {{ $questionnaire && $questions_answers['do_you_work'] === 'yes' ? 'checked' : '' }} />
+                    <input type="radio" class="radio radio-xs" name="do_you_work" value="yes" {{ $questionnaire && ($questions_answers['do_you_work'] ?? null) === 'yes' ? 'checked' : '' }} />
                     <span class="text-sm">Yes</span>
                   </label>
                   <label class="flex items-center gap-2">
-                    <input type="radio" class="radio radio-xs" name="do_you_work" value="no" {{ $questionnaire && $questions_answers['do_you_work'] === 'no' ? 'checked' : '' }} />
+                    <input type="radio" class="radio radio-xs" name="do_you_work" value="no" {{ $questionnaire && ($questions_answers['do_you_work'] ?? null) === 'no' ? 'checked' : '' }} />
                     <span class="text-sm">No</span>
                   </label>
                 </div>
@@ -1088,13 +1088,13 @@
                 <div>
                   <p class="font-medium mb-2">What does your pet do throughout the day?*</p>
                   <div class="mb-2 ms-4">
-                    <input type="text" name="pet_daily_activities" class="input w-full input-sm" value="{{ $questionnaire ? $questions_answers['pet_daily_activities'] : '' }}" />
+                    <input type="text" name="pet_daily_activities" class="input w-full input-sm" value="{{ $questionnaire ? ($questions_answers['pet_daily_activities'] ?? null) : '' }}" />
                   </div>
                 </div>
                 <div>
                   <p class="font-medium mb-2">Who lets your pet out during the day?*</p>
                   <div class="mb-2 ms-4">
-                    <input type="text" name="who_lets_out" class="input w-full input-sm" value="{{ $questionnaire ? $questions_answers['who_lets_out'] : '' }}" />
+                    <input type="text" name="who_lets_out" class="input w-full input-sm" value="{{ $questionnaire ? ($questions_answers['who_lets_out'] ?? null) : '' }}" />
                   </div>
                 </div>
               </div>
@@ -1103,13 +1103,13 @@
                 <div>
                   <p class="font-medium mb-2">How is your pet with people they don't know?*</p>
                   <div class="mb-2 ms-4">
-                    <input type="text" name="with_unknown_people" class="input w-full input-sm" value="{{ $questionnaire ? $questions_answers['with_unknown_people'] : '' }}" />
+                    <input type="text" name="with_unknown_people" class="input w-full input-sm" value="{{ $questionnaire ? ($questions_answers['with_unknown_people'] ?? null) : '' }}" />
                   </div>
                 </div>
                 <div>
                   <p class="font-medium mb-2">How is your pet with dogs they don't know?*</p>
                   <div class="mb-2 ms-4">
-                    <input type="text" name="with_unknown_dogs" class="input w-full input-sm" value="{{ $questionnaire ? $questions_answers['with_unknown_dogs'] : '' }}" />
+                    <input type="text" name="with_unknown_dogs" class="input w-full input-sm" value="{{ $questionnaire ? ($questions_answers['with_unknown_dogs'] ?? null) : '' }}" />
                   </div>
                 </div>
               </div>
@@ -1118,11 +1118,11 @@
                   <p class="font-medium mb-2">Has your pet ever bit someone?*</p>
                   <div class="mb-2 ms-4 flex items-center gap-4">
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="ever_bitten_someone" value="yes" {{ $questionnaire && $questions_answers['ever_bitten_someone'] === 'yes' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="ever_bitten_someone" value="yes" {{ $questionnaire && ($questions_answers['ever_bitten_someone'] ?? null) === 'yes' ? 'checked' : '' }} />
                       <span class="text-sm">Yes</span>
                     </label>
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="ever_bitten_someone" value="no" {{ $questionnaire && $questions_answers['ever_bitten_someone'] === 'no' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="ever_bitten_someone" value="no" {{ $questionnaire && ($questions_answers['ever_bitten_someone'] ?? null) === 'no' ? 'checked' : '' }} />
                       <span class="text-sm">No</span>
                     </label>
                   </div>
@@ -1131,11 +1131,11 @@
                   <p class="font-medium mb-2">Has your dog tried to bite someone?*</p>
                   <div class="mb-2 ms-4 flex items-center gap-4">
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="tried_to_bite" value="yes" {{ $questionnaire && $questions_answers['tried_to_bite'] === 'yes' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="tried_to_bite" value="yes" {{ $questionnaire && ($questions_answers['tried_to_bite'] ?? null) === 'yes' ? 'checked' : '' }} />
                       <span class="text-sm">Yes</span>
                     </label>
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="tried_to_bite" value="no" {{ $questionnaire && $questions_answers['tried_to_bite'] === 'no' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="tried_to_bite" value="no" {{ $questionnaire && ($questions_answers['tried_to_bite'] ?? null) === 'no' ? 'checked' : '' }} />
                       <span class="text-sm">No</span>
                     </label>
                   </div>
@@ -1144,11 +1144,11 @@
                   <p class="font-medium mb-2">Has your pet ever fought with another dog?*</p>
                   <div class="mb-2 ms-4 flex items-center gap-4">
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="fought_with_dogs" value="yes" {{ $questionnaire && $questions_answers['fought_with_dogs'] === 'yes' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="fought_with_dogs" value="yes" {{ $questionnaire && ($questions_answers['fought_with_dogs'] ?? null) === 'yes' ? 'checked' : '' }} />
                       <span class="text-sm">Yes</span>
                     </label>
                     <label class="flex items-center gap-2">
-                      <input type="radio" class="radio radio-xs" name="fought_with_dogs" value="no" {{ $questionnaire && $questions_answers['fought_with_dogs'] === 'no' ? 'checked' : '' }} />
+                      <input type="radio" class="radio radio-xs" name="fought_with_dogs" value="no" {{ $questionnaire && ($questions_answers['fought_with_dogs'] ?? null) === 'no' ? 'checked' : '' }} />
                       <span class="text-sm">No</span>
                     </label>
                   </div>
@@ -2279,7 +2279,14 @@
         ];
 
         for (const field of questionnaireFields) {
-          if ($(`[name="${field}"]`).length > 0 && !$(`[name="${field}"]`).val() && !$(`[name="${field}"]:checked`).val()) {
+          // Checkbox groups are named "field[]"
+          const $inputs = $(`[name="${field}"], [name="${field}[]"]`);
+          if ($inputs.length === 0) continue;
+
+          // Radios and checkboxes need a checked option; text inputs need a non-blank value
+          const isChoice = $inputs.is(':radio, :checkbox');
+          const filled = isChoice ? $inputs.filter(':checked').length > 0 : $.trim($inputs.val()) !== '';
+          if (!filled) {
             $('#alert_message').text('Please fill in all required fields in the questionnaire form.');
             alert_modal.showModal();
             return;
