@@ -3006,21 +3006,7 @@ class DashboardController extends Controller
             ? PetBehavior::with('icon')->whereIn('id', $allBehaviorIds->all())->get()->keyBy('id')
             : collect();
 
-        $normalizeBehaviorIconMarkup = function ($iconMarkup) {
-            $normalized = trim((string) $iconMarkup);
-            if ($normalized === '') {
-                return null;
-            }
-
-            $normalized = html_entity_decode($normalized, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-            $normalized = str_replace('dominant-baseline="central"font-size=', 'dominant-baseline="central" font-size=', $normalized);
-
-            if (!str_starts_with($normalized, '<svg') && !str_starts_with($normalized, '<span') && !str_starts_with($normalized, '<i')) {
-                return null;
-            }
-
-            return $normalized;
-        };
+        $normalizeBehaviorIconMarkup = fn ($iconMarkup) => normalizeBehaviorIconMarkup($iconMarkup);
 
         $buildStarRating = function ($ratingValue) {
             $rating = strtolower(trim((string) $ratingValue));

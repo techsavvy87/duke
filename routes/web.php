@@ -313,6 +313,7 @@ Route::middleware(['auth', 'demo.access'])->group(function () {
         Route::post('/appointment/{id}/invoice/save', 'saveInvoice')->name('save-invoice-appointment')->middleware('ensure.permission:3,can_update');
         Route::post('/appointment/{id}/email/send', 'sendCustomerEmail')->name('send-appointment-customer-email')->middleware('ensure.permission:3,can_update');
         Route::post('/appointment/{id}/notify/send', 'sendCustomerNotification')->name('send-appointment-customer-notification')->middleware('ensure.permission:3,can_update');
+        Route::post('/appointment/{id}/service-report', 'saveServiceReport')->name('save-appointment-service-report')->middleware('ensure.permission:3,can_update');
         Route::post('/appointment/{id}/completed/confirm', 'confirmCompleted')->name('confirm-completed-appointment')->middleware('ensure.permission:3,can_update');
         Route::post('/appointment/{id}/late-fee', 'updateLateFeeSetting')->name('update-appointment-late-fee')->middleware('ensure.permission:3,can_update');
         Route::post('/appointment/{id}/status/update', 'updateStatus')->name('update-appointment-status')->middleware('ensure.permission:3,can_update');

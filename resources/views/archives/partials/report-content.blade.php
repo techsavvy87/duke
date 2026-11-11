@@ -1048,6 +1048,7 @@
                   </div>
                   @endif
               </div>
+              @include('archives.partials.service-report-extras')
               @if(empty($hideExportButtons))
               <div class="mt-4 flex justify-end">
                 <button type="button" class="btn btn-sm btn-primary btn-outline" onclick="exportGroomingReportPDF()">
@@ -1275,6 +1276,7 @@
                 </div>
                 @endif
               </div>
+              @include('archives.partials.service-report-extras')
               @if(empty($hideExportButtons))
               <div class="mt-4 flex justify-end">
                 <button type="button" class="btn btn-sm btn-primary btn-outline" onclick="exportDaycareReportPDF()">
@@ -1528,6 +1530,7 @@
                 </div>
                 @endif
               </div>
+              @include('archives.partials.service-report-extras')
               @if(empty($hideExportButtons))
               <div class="mt-4 flex justify-end">
                 <button type="button" class="btn btn-sm btn-primary btn-outline" onclick="exportTrainingReportPDF()">
@@ -1660,6 +1663,7 @@
                 </div>
                 @endif
               </div>
+              @include('archives.partials.service-report-extras')
               @if(empty($hideExportButtons))
               <div class="mt-4 flex justify-end">
                 <button type="button" class="btn btn-sm btn-primary btn-outline" onclick="exportGroupClassReportPDF()">
@@ -1919,6 +1923,7 @@
                 </div>
                 @endif
               </div>
+              @include('archives.partials.service-report-extras')
               @if(empty($hideExportButtons))
               <div class="mt-4 flex justify-end">
                 <button type="button" class="btn btn-sm btn-primary btn-outline" onclick="exportAlaCarteReportPDF()">
@@ -2086,6 +2091,7 @@
                 </div>
                 @endif
               </div>
+              @include('archives.partials.service-report-extras')
               @if(empty($hideExportButtons))
               <div class="mt-4 flex justify-end">
                 <button type="button" class="btn btn-sm btn-primary btn-outline" onclick="exportPackageReportPDF()">

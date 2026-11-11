@@ -2438,7 +2438,11 @@ class AppointmentController extends Controller
         }
 
         // Handle flows and pictures
-        $flowsData = $request->flows ? json_decode($request->flows, true) : [];
+        $flowsData = $this->applyServiceReportInput($request, $appointment);
+        if (hasServiceReportWorkflow($appointment->service)) {
+            // Service report details were saved during In Progress / On Property; checkout only adds to them.
+            $flowsData = array_merge($existingCheckoutFlows, $flowsData);
+        }
         // Admin adaptation: sunshine records the actual checkout time for every appointment; admin only
         // records it for boarding so the checkout data of the other services is unchanged.
         if (isBoardingService($appointment->service)) {
@@ -2448,35 +2452,6 @@ class AppointmentController extends Controller
             $flowsData['actual_checkout_at'] = $actualCheckoutAt->format('Y-m-d H:i:s');
             $flowsData['actual_checkout_date'] = $actualCheckoutAt->toDateString();
             $flowsData['actual_checkout_time'] = $actualCheckoutAt->format('H:i:s');
-        }
-
-        // Handle picture uploads
-        $pictureNames = [];
-        if ($request->hasFile('pictures')) {
-            foreach ($request->file('pictures') as $picture) {
-                $fileName = time() . '_' . uniqid() . '.' . $picture->getClientOriginalExtension();
-                $picture->storeAs('checkouts', $fileName, 'public');
-                $pictureNames[] = $fileName;
-            }
-        }
-
-        // Add pictures to flows
-        if (!empty($pictureNames)) {
-            $flowsData['pictures'] = $pictureNames;
-        }
-
-        // Update pet behavior selection when provided from checkout form
-        if ($appointment->pet_id && isset($flowsData['behavior_ids']) && is_array($flowsData['behavior_ids'])) {
-            $behaviorIds = collect($flowsData['behavior_ids'])
-                ->map(fn ($id) => (int) $id)
-                ->filter(fn ($id) => $id > 0)
-                ->unique()
-                ->values()
-                ->toArray();
-
-            PetProfile::where('id', $appointment->pet_id)->update([
-                'pet_behavior_id' => $behaviorIds,
-            ]);
         }
 
         $appliedLateCheckoutDaycareFee = 0;
@@ -2524,6 +2499,111 @@ class AppointmentController extends Controller
             'status' => 'success',
             'message' => 'Checkout completed successfully.'
         ]);
+    }
+
+    /**
+     * Save the service-specific checkout details (rating, pictures, notes, training results, behavior)
+     * while the appointment is In Progress / On Property. They are kept in the checkout flows so the
+     * completed and archived service reports read them unchanged.
+     */
+    public function saveServiceReport(Request $request, $id)
+    {
+        $appointment = Appointment::with('service.category')->find($id);
+        if (!$appointment) {
+            return response()->json([
+                'status' => 'fail',
+                'message' => 'Appointment not found.'
+            ], 404);
+        }
+
+        if (!hasServiceReportWorkflow($appointment->service) || $appointment->status !== 'in_progress') {
+            return response()->json([
+                'status' => 'fail',
+                'message' => 'The service report can only be updated while the appointment is in progress.'
+            ], 422);
+        }
+
+        $request->validate([
+            'flows' => 'nullable|string',
+            'pictures.*' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048'
+        ]);
+
+        $checkout = Checkout::where('appointment_id', $appointment->id)->first();
+        if (!$checkout) {
+            $checkout = new Checkout;
+            $checkout->appointment_id = $appointment->id;
+        }
+
+        $existingFlows = [];
+        if (!empty($checkout->flows)) {
+            $decoded = is_array($checkout->flows) ? $checkout->flows : json_decode($checkout->flows, true);
+            $existingFlows = is_array($decoded) ? $decoded : [];
+        }
+
+        // The form posts the full set of report fields, so a field left empty clears its stored value.
+        // Pictures are only replaced when new ones are uploaded, as on checkout.
+        $reportKeys = [
+            'rating', 'rating_yellow_detail', 'rating_purple_detail', 'service_notes',
+            'obedience_ratings', 'training_current_ratings', 'training_targets', 'training_homework', 'behavior_ids',
+        ];
+        $flowsData = array_merge(
+            array_diff_key($existingFlows, array_flip($reportKeys)),
+            $this->applyServiceReportInput($request, $appointment)
+        );
+
+        $checkout->flows = json_encode($flowsData);
+        $checkout->save();
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Service report saved successfully.'
+        ]);
+    }
+
+    /**
+     * Decode the posted checkout flows, store uploaded pictures and sync the pet behavior selection.
+     */
+    private function applyServiceReportInput(Request $request, Appointment $appointment): array
+    {
+        $flowsData = $request->flows ? json_decode($request->flows, true) : [];
+        if (!is_array($flowsData)) {
+            $flowsData = [];
+        }
+
+        // Handle picture uploads
+        $pictureNames = [];
+        if ($request->hasFile('pictures')) {
+            foreach ($request->file('pictures') as $picture) {
+                $fileName = time() . '_' . uniqid() . '.' . $picture->getClientOriginalExtension();
+                $picture->storeAs('checkouts', $fileName, 'public');
+                $pictureNames[] = $fileName;
+            }
+        }
+
+        // Add pictures to flows
+        if (!empty($pictureNames)) {
+            $flowsData['pictures'] = $pictureNames;
+        }
+
+        // Update pet behavior selection when provided from the form
+        if ($appointment->pet_id && isset($flowsData['behavior_ids']) && is_array($flowsData['behavior_ids'])) {
+            $behaviorIds = collect($flowsData['behavior_ids'])
+                ->map(fn ($id) => (int) $id)
+                ->filter(fn ($id) => $id > 0)
+                ->unique()
+                ->values()
+                ->toArray();
+
+            // The service report starts with no behavior selected, so an empty selection there means
+            // "nothing recorded" and must not clear the behavior already on the pet profile.
+            if (!empty($behaviorIds) || !hasServiceReportWorkflow($appointment->service)) {
+                PetProfile::where('id', $appointment->pet_id)->update([
+                    'pet_behavior_id' => $behaviorIds,
+                ]);
+            }
+        }
+
+        return $flowsData;
     }
 
     public function saveAlaCarteProcess(Request $request, $id)

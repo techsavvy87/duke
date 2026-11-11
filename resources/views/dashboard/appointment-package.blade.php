@@ -153,6 +153,9 @@
           </div>
         </div>
       </div>
+      @if ($appointment->status === 'completed')
+      @include('dashboard.partials.service-report-section')
+      @endif
     </div>
     <div class="lg:col-span-7 2xl:col-span-7">
       {{-- Pet Profile --}}
@@ -347,6 +350,19 @@
         </div>
       </div>
       @endif
+      @if ($appointment->status === 'in_progress')
+      <div class="card card-border bg-base-100 mt-3">
+        <div class="card-body gap-0">
+          <div class="bg-base-200 rounded-box collapse collapse-arrow">
+            <input aria-label="Collapse trigger" type="checkbox" name="accordion-multiple" />
+            <div class="collapse-title font-medium py-1">Service Report</div>
+            <div class="collapse-content bg-base-100" id="service_report_fields">
+              @include('dashboard.partials.service-report-fields', ['showServiceNotes' => false, 'ratingSubject' => 'package'])
+            </div>
+          </div>
+        </div>
+      </div>
+      @endif
 
       {{-- Checkout Info --}}
       @if ($appointment->status === 'completed')
@@ -356,32 +372,21 @@
             <input aria-label="Collapse trigger" type="checkbox" name="accordion-multiple" />
             <div class="collapse-title font-medium py-1">Checkout Info</div>
             <div class="collapse-content bg-base-100">
-              {{-- Same Checkout Info structure as the Boarding completed page. --}}
-              @php
-                $checkoutServiceName = $appointment->package_name ?? ($appointment->service->name ?? 'Package');
-              @endphp
-              <div class="mt-4 grid grid-cols-1 gap-6 xl:grid-cols-3">
+              <div class="mt-4 grid grid-cols-1 gap-6 xl:grid-cols-2">
                 <fieldset class="fieldset">
                   <legend class="fieldset-legend">Date*</legend>
-                  <input class="input input-bordered w-full" placeholder="Select date" id="checkout_date" name="checkout_date" type="date" value="{{ now()->toDateString() }}"/>
+                  <input class="input input-bordered w-full" placeholder="Select date" id="checkout_date" name="checkout_date" type="date" value="{{ $checkout->date ?? ($appointment->date ?? '') }}"/>
                 </fieldset>
                 <fieldset class="fieldset">
-                  <legend class="fieldset-legend">Start Time</legend>
-                  <input class="input input-bordered w-full" placeholder="Select time" id="checkout_start_time" name="checkout_start_time" type="time" min="09:00" max="18:00" value="{{ $appointment->start_time ? \Carbon\Carbon::createFromFormat('H:i:s', $appointment->start_time)->format('H:i') : '' }}" disabled/>
-                </fieldset>
-                <fieldset class="fieldset">
-                  <legend class="fieldset-legend">Pickup Time</legend>
-                  <input class="input input-bordered w-full" placeholder="Select time" id="checkout_pickup_time" name="checkout_pickup_time" type="time" min="09:00" max="18:00" value="{{ now()->format('H:i') }}" disabled/>
+                  <legend class="fieldset-legend">Pickup Time*</legend>
+                  <input class="input input-bordered w-full" placeholder="Select time" id="checkout_pickup_time" name="checkout_pickup_time" type="time" min="09:00" max="18:00" value="{{ $appointment->end_time ? \Carbon\Carbon::createFromFormat('H:i:s', $appointment->end_time)->format('H:i') : '' }}"/>
                 </fieldset>
               </div>
-              <hr class="mt-5" style="color: lightgray"/>
-              <div class="mt-4 space-y-2 text-sm">
-                <div class="mt-3">
-                  <p class="font-medium mb-2">Notes for {{ $checkoutServiceName }}:</p>
-                  <div class="mb-2">
-                    <textarea class="textarea textarea-bordered w-full" placeholder="Add any notes about the {{ strtolower($checkoutServiceName) }}..." id="checkout_service_notes" name="checkout_service_notes" rows="3">{{ $checkout && $checkout->flows && isset($checkout->flows['service_notes']) ? $checkout->flows['service_notes'] : '' }}</textarea>
-                  </div>
-                </div>
+              <div class="mt-4">
+                <fieldset class="fieldset">
+                  <legend class="fieldset-legend">Notes</legend>
+                  <textarea class="textarea textarea-bordered w-full" placeholder="Add any notes about the checkout process..." id="checkout_notes" name="checkout_notes" rows="3">{{ $checkout->notes ?? '' }}</textarea>
+                </fieldset>
               </div>
             </div>
           </div>
@@ -694,14 +699,22 @@
     csrf.value = '{{ csrf_token() }}';
     form.appendChild(csrf);
 
-    document.body.appendChild(form);
-    form.submit();
+    // Save the service report first so the rating and pictures entered during In Progress are kept.
+    saveServiceReport()
+      .done(function() {
+        document.body.appendChild(form);
+        form.submit();
+      })
+      .fail(function(xhr) {
+        $('#alert_message').text(getServiceReportErrorMessage(xhr, 'Error saving service report. Please try again.'));
+        alert_modal.showModal();
+      });
   }
 
   function confirmCompleted() {
     const date = $('#checkout_date').val();
     const pickupTime = $('#checkout_pickup_time').val();
-    const serviceNotes = $('#checkout_service_notes').val();
+    const notes = $('#checkout_notes').val();
 
     if (!date) {
       $('#alert_message').text('Please select a checkout date.');
@@ -715,20 +728,11 @@
       return;
     }
 
-    // Use FormData for submission
-    const formData = new FormData();
-    formData.append('_token', '{{ csrf_token() }}');
+    // The rating and pictures were saved with the service report during In Progress.
+    const formData = buildServiceReportFormData();
     formData.append('date', date);
     formData.append('pickup_time', pickupTime);
-    formData.append('actual_checkout_at', date + ' ' + pickupTime + ':00');
-    formData.append('notes', '');
-
-    const flows = {};
-    if (serviceNotes) {
-      flows.service_notes = serviceNotes;
-    }
-
-    formData.append('flows', JSON.stringify(flows));
+    formData.append('notes', notes || '');
 
     // Send via AJAX
     $.ajax({
@@ -762,6 +766,8 @@
       }
     });
   }
+
+@include('dashboard.partials.service-report-js')
 
   function savePackageProcess(appointmentId, serviceId) {
     const $btn = $(`.save-package-process-btn[data-service-id="${serviceId}"]`);

@@ -137,6 +137,7 @@ class ArchiveController extends Controller
         }
 
         $checkout = Checkout::where('appointment_id', $appointment->id)->first();
+        fillCheckoutReportDetails($checkout, $appointment);
         if ($checkout && $checkout->flows) {
             $checkout->flows = json_decode($checkout->flows, true);
         }
@@ -258,6 +259,7 @@ class ArchiveController extends Controller
         }
 
         $checkout = Checkout::where('appointment_id', $appointment->id)->first();
+        fillCheckoutReportDetails($checkout, $appointment);
         if ($checkout && $checkout->flows) {
             $checkout->flows = json_decode($checkout->flows, true);
         }
@@ -397,6 +399,7 @@ class ArchiveController extends Controller
         }
 
         $checkout = Checkout::where('appointment_id', $appointment->id)->first();
+        fillCheckoutReportDetails($checkout, $appointment);
         if ($checkout && $checkout->flows) {
             $checkout->flows = json_decode($checkout->flows, true);
         }
@@ -423,6 +426,7 @@ class ArchiveController extends Controller
         }
 
         $checkout = Checkout::where('appointment_id', $appointment->id)->first();
+        fillCheckoutReportDetails($checkout, $appointment);
         if ($checkout && $checkout->flows) {
             $checkout->flows = json_decode($checkout->flows, true);
         }
@@ -502,6 +506,7 @@ class ArchiveController extends Controller
         }
 
         $checkout = Checkout::where('appointment_id', $appointment->id)->first();
+        fillCheckoutReportDetails($checkout, $appointment);
         if ($checkout && $checkout->flows) {
             $checkout->flows = json_decode($checkout->flows, true);
         }
@@ -537,6 +542,7 @@ class ArchiveController extends Controller
         }
 
         $checkout = Checkout::where('appointment_id', $appointment->id)->first();
+        fillCheckoutReportDetails($checkout, $appointment);
         if ($checkout && $checkout->flows) {
             $checkout->flows = json_decode($checkout->flows, true);
         }
@@ -582,6 +588,7 @@ class ArchiveController extends Controller
         }
 
         $checkout = Checkout::where('appointment_id', $appointment->id)->first();
+        fillCheckoutReportDetails($checkout, $appointment);
         if ($checkout && $checkout->flows) {
             $checkout->flows = json_decode($checkout->flows, true);
         }
@@ -629,6 +636,7 @@ class ArchiveController extends Controller
         }
 
         $checkout = Checkout::where('appointment_id', $appointment->id)->first();
+        fillCheckoutReportDetails($checkout, $appointment);
         if ($checkout && $checkout->flows) {
             $checkout->flows = json_decode($checkout->flows, true);
         }
@@ -706,6 +714,7 @@ class ArchiveController extends Controller
         }
         
         $checkout = Checkout::where('appointment_id', $appointment->id)->first();
+        fillCheckoutReportDetails($checkout, $appointment);
         if ($checkout && $checkout->flows) {
             $checkout->flows = json_decode($checkout->flows, true);
         }

@@ -2584,31 +2584,73 @@
       });
     }
 
+    // Active packages rendered by the server, kept so customer packages can be layered on top of them.
+    let packageCatalogOptions = null;
+    let customerPackagesRequestId = 0;
+
+    function getPackageCatalogOptions() {
+      if (packageCatalogOptions === null) {
+        packageCatalogOptions = $('#packages option').filter(function() { return this.value; }).clone();
+      }
+      return packageCatalogOptions;
+    }
+
+    function renderPackageOptions(customerPackages) {
+      const $packages = $('#packages');
+      const $selected = $packages.find('option:selected');
+      // Only a catalog choice carries over; a purchased package belongs to the previous customer.
+      const keepPackageId = $selected.val() && !$selected.attr('data-customer-package-id') ? $selected.val() : null;
+
+      $packages.empty();
+      $packages.append('<option value="" hidden selected>Choose a package</option>');
+
+      if (customerPackages.length > 0) {
+        const $owned = $('<optgroup label="Customer\'s Packages"></optgroup>');
+        $.each(customerPackages, function(index, cp) {
+          $owned.append(
+            $('<option></option>')
+              .attr('value', cp.id)
+              .attr('data-customer-package-id', cp.customer_package_id || '')
+              .attr('data-package', JSON.stringify(cp))
+              .text(cp.name + (cp.remaining_days ? ' (Remaining: ' + cp.remaining_days + ' days)' : ''))
+          );
+        });
+        $packages.append($owned);
+        $packages.append($('<optgroup label="Available Packages"></optgroup>').append(getPackageCatalogOptions().clone()));
+      } else {
+        $packages.append(getPackageCatalogOptions().clone());
+      }
+
+      if (keepPackageId) {
+        $packages.find('option:not([data-customer-package-id])').filter(function() {
+          return this.value === keepPackageId;
+        }).prop('selected', true);
+      }
+
+      $packages.trigger('change');
+    }
+
     function loadCustomerPackages(customerId) {
+      getPackageCatalogOptions();
+      const requestId = ++customerPackagesRequestId;
+
       $.ajax({
         url: '{{ url("/appointment/customer-packages") }}/' + customerId,
         type: 'GET',
         dataType: 'json',
         success: function(customerPackages) {
-          $('#packages').empty();
-          $('#packages').append('<option value="" hidden selected>Choose a package</option>');
-
-          $.each(customerPackages, function(index, cp) {
-            const option = $('<option></option>')
-              .attr('value', cp.id)
-              .attr('data-customer-package-id', cp.customer_package_id || '')  // Store customer_package_id
-              .attr('data-package', JSON.stringify(cp))
-              .text(cp.name + (cp.remaining_days ? ' (Remaining: ' + cp.remaining_days + ' days)' : ''));
-            $('#packages').append(option);
-          });
-
-          $('#packages').trigger('change');
+          // Ignore responses for a customer that has since been replaced.
+          if (requestId !== customerPackagesRequestId) {
+            return;
+          }
+          renderPackageOptions(customerPackages || []);
         },
         error: function() {
+          if (requestId !== customerPackagesRequestId) {
+            return;
+          }
           console.error('Failed to fetch customer packages.');
-          $('#packages').empty();
-          $('#packages').append('<option value="" hidden selected>Choose a package</option>');
-          $('#packages').trigger('change');
+          renderPackageOptions([]);
         }
       });
     }

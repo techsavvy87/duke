@@ -272,56 +272,8 @@
                 <div class="behavior-list">
                   @foreach($petData['behaviorItems'] as $behavior)
                     @php
-                      $iconMarkup = trim((string) ($behavior['icon_markup'] ?? ''));
-
-                      if ($iconMarkup !== '') {
-                          // Remove unsupported/problematic SVG parts
-                          $iconMarkup = preg_replace('/<style\b[^>]*>.*?<\/style>/is', '', $iconMarkup);
-                          $iconMarkup = preg_replace('/\sclass="[^"]*"/i', '', $iconMarkup);
-                          $iconMarkup = preg_replace('/\sid="[^"]*"/i', '', $iconMarkup);
-                          $iconMarkup = preg_replace('/\sversion="[^"]*"/i', '', $iconMarkup);
-                          $iconMarkup = preg_replace('/\sxml:space="[^"]*"/i', '', $iconMarkup);
-                          $iconMarkup = preg_replace('/\sxmlns:xlink="[^"]*"/i', '', $iconMarkup);
-
-                          // Force SVG size for PDF
-                          $iconMarkup = preg_replace('/\swidth="[^"]*"/i', ' width="32"', $iconMarkup, 1);
-                          $iconMarkup = preg_replace('/\sheight="[^"]*"/i', ' height="32"', $iconMarkup, 1);
-
-                          // If SVG has huge viewBox, scale paths down into 32x32 viewBox
-                          if (preg_match('/viewBox="0 0 ([0-9.]+) ([0-9.]+)"/i', $iconMarkup, $matches)) {
-                              $viewBoxWidth = (float) $matches[1];
-
-                              if ($viewBoxWidth > 32) {
-                                  $scale = 32 / $viewBoxWidth;
-
-                                  $iconMarkup = preg_replace(
-                                      '/viewBox="[^"]*"/i',
-                                      'viewBox="0 0 32 32"',
-                                      $iconMarkup,
-                                      1
-                                  );
-
-                                  $iconMarkup = preg_replace(
-                                      '/<svg\b([^>]*)>/i',
-                                      '<svg$1><g transform="scale(' . $scale . ')">',
-                                      $iconMarkup,
-                                      1
-                                  );
-
-                                  $iconMarkup = preg_replace(
-                                      '/<\/svg>/i',
-                                      '</g></svg>',
-                                      $iconMarkup,
-                                      1
-                                  );
-                              }
-                          }
-
-                          $iconDataUri = 'data:image/svg+xml;base64,' . base64_encode($iconMarkup);
-                      } else {
-                          $iconDataUri = '';
-                      }
-                  @endphp
+                      $iconDataUri = behaviorIconPdfDataUri($behavior['icon_markup'] ?? '');
+                    @endphp
                     <div class="behavior-item">
                       @if($iconDataUri !== '')
                         <span class="behavior-icon"><img src="{{ $iconDataUri }}" alt="" /></span>

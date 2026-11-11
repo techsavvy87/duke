@@ -85,10 +85,12 @@
       color: #4a5568;
       display: inline-block;
       min-width: 120px;
+      vertical-align: middle;
     }
     .field-value {
       color: #1a1a1a;
       display: inline-block;
+      vertical-align: middle;
     }
     .badge {
       display: inline-block;
@@ -97,6 +99,15 @@
       font-size: 11px;
       font-weight: bold;
       margin-right: 5px;
+      vertical-align: middle;
+    }
+    .field-value span {
+      display: inline-block;
+      vertical-align: middle;
+    }
+    strong {
+      display: inline-block;
+      vertical-align: middle;
     }
     .badge-primary {
       background-color: #bee3f8;
@@ -440,6 +451,8 @@
     @endif
   </div>
   @endif
+
+  @include('archives.partials.service-report-extras-pdf')
 
   <div class="footer">
     <p>Generated on {{ \Carbon\Carbon::now()->format('F j, Y \a\t g:i A') }}</p>

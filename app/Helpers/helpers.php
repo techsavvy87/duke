@@ -214,6 +214,147 @@ if (!function_exists('isPackageService')) {
     }
 }
 
+if (!function_exists('hasServiceReportWorkflow')) {
+    /**
+     * Services whose service-specific checkout details are recorded during In Progress / On Property
+     * and reviewed as a read-only service report once the appointment is completed.
+     */
+    function hasServiceReportWorkflow($service): bool
+    {
+        if (!$service || isBoardingService($service)) return false;
+
+        return isGroomingService($service)
+            || isAlaCarteService($service)
+            || isPackageService($service)
+            || isGroupClassService($service)
+            || isDaycareService($service)
+            || isPrivateTrainingService($service);
+    }
+}
+
+if (!function_exists('fillCheckoutReportDetails')) {
+    /**
+     * Fill the checkout date/start/pickup shown on the service reports. Checkouts only store a date, so the
+     * times come from the appointment, as on the Completed page; before checkout is confirmed the date
+     * falls back to the appointment date like the Completed form does. Display only, never saved.
+     */
+    function fillCheckoutReportDetails($checkout, $appointment): void
+    {
+        if (!$checkout || !$appointment || !hasServiceReportWorkflow($appointment->service)) {
+            return;
+        }
+
+        $checkout->date = $checkout->date ?: ($appointment->date ?? null);
+        $checkout->start_time = $checkout->start_time ?: ($appointment->start_time ?? null);
+        $checkout->pickup_time = $checkout->pickup_time ?: ($appointment->end_time ?? null);
+    }
+}
+
+if (!function_exists('normalizeBehaviorIconMarkup')) {
+    /**
+     * Clean a stored behavior icon so it can be rendered as markup; null when it is not usable.
+     */
+    function normalizeBehaviorIconMarkup($iconMarkup): ?string
+    {
+        $normalized = trim((string) $iconMarkup);
+        if ($normalized === '') {
+            return null;
+        }
+
+        $normalized = html_entity_decode($normalized, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $normalized = str_replace('dominant-baseline="central"font-size=', 'dominant-baseline="central" font-size=', $normalized);
+
+        if (!str_starts_with($normalized, '<svg') && !str_starts_with($normalized, '<span') && !str_starts_with($normalized, '<i')) {
+            return null;
+        }
+
+        return $normalized;
+    }
+}
+
+if (!function_exists('getBehaviorDisplayItems')) {
+    /**
+     * Behavior label and icon markup for the given behavior ids, in the given order.
+     */
+    function getBehaviorDisplayItems($behaviorIds): array
+    {
+        $ids = collect(is_array($behaviorIds) ? $behaviorIds : [])
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn ($id) => $id > 0)
+            ->unique()
+            ->values();
+
+        if ($ids->isEmpty()) {
+            return [];
+        }
+
+        $behaviorsById = \App\Models\PetBehavior::with('icon')->whereIn('id', $ids->all())->get()->keyBy('id');
+
+        return $ids
+            ->map(function ($id) use ($behaviorsById) {
+                $behavior = $behaviorsById->get($id);
+                if (!$behavior) {
+                    return null;
+                }
+
+                $label = trim((string) ($behavior->description ?? ''));
+                $iconMarkup = normalizeBehaviorIconMarkup(optional($behavior->icon)->icon ?? '');
+
+                if ($label === '' && empty($iconMarkup)) {
+                    return null;
+                }
+
+                return [
+                    'label' => $label,
+                    'icon_markup' => $iconMarkup,
+                ];
+            })
+            ->filter()
+            ->values()
+            ->all();
+    }
+}
+
+if (!function_exists('behaviorIconPdfDataUri')) {
+    /**
+     * Turn behavior icon SVG markup into a 32x32 data URI that DomPDF can render; '' when there is no icon.
+     */
+    function behaviorIconPdfDataUri($iconMarkup): string
+    {
+        $iconMarkup = trim((string) $iconMarkup);
+        if ($iconMarkup === '') {
+            return '';
+        }
+
+        // Remove unsupported/problematic SVG parts
+        $iconMarkup = preg_replace('/<style\b[^>]*>.*?<\/style>/is', '', $iconMarkup);
+        $iconMarkup = preg_replace('/\sclass="[^"]*"/i', '', $iconMarkup);
+        $iconMarkup = preg_replace('/\sid="[^"]*"/i', '', $iconMarkup);
+        $iconMarkup = preg_replace('/\sversion="[^"]*"/i', '', $iconMarkup);
+        $iconMarkup = preg_replace('/\sxml:space="[^"]*"/i', '', $iconMarkup);
+        $iconMarkup = preg_replace('/\sxmlns:xlink="[^"]*"/i', '', $iconMarkup);
+
+        // Force SVG size for PDF
+        $iconMarkup = preg_replace('/\swidth="[^"]*"/i', ' width="32"', $iconMarkup, 1);
+        $iconMarkup = preg_replace('/\sheight="[^"]*"/i', ' height="32"', $iconMarkup, 1);
+
+        // If SVG has huge viewBox, scale paths down into 32x32 viewBox
+        if (preg_match('/viewBox="0 0 ([0-9.]+) ([0-9.]+)"/i', $iconMarkup, $matches)) {
+            $viewBoxWidth = (float) $matches[1];
+
+            if ($viewBoxWidth > 32) {
+                $scale = 32 / $viewBoxWidth;
+
+                $iconMarkup = preg_replace('/viewBox="[^"]*"/i', 'viewBox="0 0 32 32"', $iconMarkup, 1);
+                $iconMarkup = preg_replace('/<svg\b([^>]*)>/i', '<svg$1><g transform="scale(' . $scale . ')">', $iconMarkup, 1);
+                $iconMarkup = preg_replace('/<\/svg>/i', '</g></svg>', $iconMarkup, 1);
+            }
+        }
+
+        return 'data:image/svg+xml;base64,' . base64_encode($iconMarkup);
+    }
+}
+
 if (!function_exists('getBoardingNightCount')) {
     function getBoardingNightCount($appointment): int
     {
