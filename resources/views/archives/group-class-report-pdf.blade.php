@@ -317,7 +317,7 @@
         <div style="margin-top: 10px; display: flex; flex-wrap: wrap; gap: 10px;">
           @foreach($checkoutFlows['pictures'] as $picture)
             <div style="margin-bottom: 10px;">
-              <img src="{{ public_path('storage/checkouts/' . $picture) }}" style="width: 150px; height: 150px; object-fit: cover; border: 1px solid #e2e8f0; border-radius: 5px;" alt="Checkout Picture">
+              <img src="{{ checkoutPicturePdfSrc($picture) }}" style="width: 150px; height: 150px; object-fit: cover; border: 1px solid #e2e8f0; border-radius: 5px;" alt="Checkout Picture">
             </div>
           @endforeach
         </div>

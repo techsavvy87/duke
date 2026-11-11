@@ -250,6 +250,27 @@ if (!function_exists('fillCheckoutReportDetails')) {
     }
 }
 
+if (!function_exists('checkoutPicturePdfSrc')) {
+    /**
+     * Image source for a checkout picture in a PDF. The file is read from the public disk (where checkout
+     * uploads are stored) and embedded as a data URI, so it does not depend on the public/storage symlink or
+     * the web root location, which differ between servers. '' when the file is missing.
+     */
+    function checkoutPicturePdfSrc($picture): string
+    {
+        $relativePath = 'checkouts/' . basename((string) $picture);
+        $disk = \Illuminate\Support\Facades\Storage::disk('public');
+
+        if ($picture === '' || $picture === null || !$disk->exists($relativePath)) {
+            return '';
+        }
+
+        $mimeType = $disk->mimeType($relativePath) ?: 'image/jpeg';
+
+        return 'data:' . $mimeType . ';base64,' . base64_encode($disk->get($relativePath));
+    }
+}
+
 if (!function_exists('normalizeBehaviorIconMarkup')) {
     /**
      * Clean a stored behavior icon so it can be rendered as markup; null when it is not usable.
