@@ -4,6 +4,7 @@ namespace App\Http\Controllers\web;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Carbon\Carbon;
 use App\Models\TimeSlot;
 use App\Models\Service;
@@ -96,12 +97,29 @@ class TimeSlotController extends Controller
 
     public function getExistingTimeSlotDates(Request $request)
     {
+        $request->validate([
+            'service_ids' => 'nullable|array',
+            'service_ids.*' => 'integer|exists:services,id',
+        ]);
+
         $today = Carbon::today()->toDateString();
-        
-        $existingDates = TimeSlot::whereDate('date', '>=', $today)
+        $serviceIds = array_values(array_unique(array_map('intval', $request->input('service_ids', []))));
+
+        // With selected services, a date is "existing" only when every selected service already has slots on it
+        $existingDatesQuery = TimeSlot::whereDate('date', '>=', $today)
             ->selectRaw('DATE(date) as date')
-            ->distinct()
-            ->orderBy('date')
+            ->groupByRaw('DATE(date)')
+            ->orderBy('date');
+        if (!empty($serviceIds)) {
+            $existingDatesQuery->whereIn('service_id', $serviceIds)
+                ->havingRaw('COUNT(DISTINCT service_id) = ?', [count($serviceIds)]);
+        }
+
+        $latestTimeSlotEndDate = empty($serviceIds)
+            ? TimeSlot::whereDate('date', '>=', $today)->max('date')
+            : (clone $existingDatesQuery)->reorder()->orderByDesc('date')->value('date');
+
+        $existingDates = $existingDatesQuery
             ->pluck('date')
             ->map(function($date) {
                 return Carbon::parse($date)->format('Y-m-d');
@@ -120,7 +138,8 @@ class TimeSlotController extends Controller
         sort($restrictedDates);
 
         return response()->json([
-            'existing_dates' => $restrictedDates
+            'existing_dates' => $restrictedDates,
+            'latest_timeslot_end_date' => $latestTimeSlotEndDate
         ]);
     }
 
@@ -129,10 +148,18 @@ class TimeSlotController extends Controller
         $request->validate([
             'start_date' => 'required|date',
             'end_date' => 'required|date|after_or_equal:start_date',
+            'service_ids' => 'nullable|array',
+            'service_ids.*' => 'integer|exists:services,id',
         ]);
 
         $startDate = Carbon::parse($request->start_date);
         $endDate = Carbon::parse($request->end_date);
+
+        if ($startDate->diffInDays($endDate) + 1 > 365) {
+            throw ValidationException::withMessages([
+                'end_date' => 'The date range cannot exceed 12 months (365 days).',
+            ]);
+        }
 
         $holidays = Holiday::with('holidayServices.service')
             ->whereBetween('date', [$startDate->toDateString(), $endDate->toDateString()])
@@ -145,6 +172,17 @@ class TimeSlotController extends Controller
         $services = $allServices->filter(function ($service) {
             return !isBoardingService($service) && !isAlaCarteService($service) && !isGroupClassService($service);
         });
+
+        // Generate only for the selected services (e.g. newly created services)
+        if ($request->filled('service_ids')) {
+            $serviceIds = array_map('intval', $request->input('service_ids'));
+            $services = $services->whereIn('id', $serviceIds);
+            if ($services->isEmpty()) {
+                throw ValidationException::withMessages([
+                    'service_ids' => 'Time slots cannot be generated for the selected services.',
+                ]);
+            }
+        }
 
         $generatedDates = 0;
         $generatedServices = 0;
