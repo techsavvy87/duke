@@ -363,6 +363,8 @@ Route::middleware(['auth', 'demo.access'])->group(function () {
         Route::post('/incident/report/create', 'createIncidentReport')->name('create-incident-report')->middleware('ensure.permission:26,can_create');
         Route::get('/incident/report/edit/{id}', 'editIncidentReport')->name('edit-incident-report')->middleware('ensure.permission:26,can_update');
         Route::post('/incident/report/update', 'updateIncidentReport')->name('update-incident-report')->middleware('ensure.permission:26,can_update');
+        Route::post('/incident/report/resolve', 'resolveIncidentReport')->name('resolve-incident-report')->middleware('ensure.permission:26,can_update');
+        Route::get('/incident/{serviceId}/pets', 'getIncidentEligiblePets')->name('get-incident-eligible-pets');
         Route::post('/incident/report/delete', 'deleteIncidentReport')->name('delete-incident-report')->middleware('ensure.permission:26,can_delete');
     });
 

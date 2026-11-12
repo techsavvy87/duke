@@ -888,6 +888,8 @@ class DashboardController extends Controller
         }
 
         $petBehaviors = PetBehavior::with('icon')->orderBy('description')->get();
+        // incident reports (open and resolved) linked to this appointment
+        $incidentReports = $appointment->incident_reports;
         $assignmentLocation = $this->getAppointmentAssignmentLocation($appointment);
         $assignmentLabel = $assignmentLocation['label'];
         $staySummary = $this->buildCheckoutStaySummary($appointment, $checkedIn);
@@ -963,7 +965,7 @@ class DashboardController extends Controller
                 });
         }
 
-        return view('dashboard.appointment', compact('appointment', 'staffs', 'checkedIn', 'process', 'checkout', 'invoice', 'additionalServices', 'lastAppointmentRatings', 'invoiceDiscountRules', 'petBehaviors', 'dbEstimatedPrice', 'assignmentLabel', 'staySummary', 'lateCheckoutDaycareFeeDisplay', 'paymentSummary', 'invoiceTransactions', 'careRooms', 'entireCareSchedule', 'initialTemperament', 'chauffeurPricingData'));
+        return view('dashboard.appointment', compact('appointment', 'staffs', 'checkedIn', 'process', 'checkout', 'invoice', 'additionalServices', 'lastAppointmentRatings', 'invoiceDiscountRules', 'petBehaviors', 'dbEstimatedPrice', 'assignmentLabel', 'staySummary', 'lateCheckoutDaycareFeeDisplay', 'paymentSummary', 'invoiceTransactions', 'careRooms', 'entireCareSchedule', 'initialTemperament', 'chauffeurPricingData', 'incidentReports'));
     }
 
     private function buildCheckoutStaySummary(Appointment $appointment, ?Checkin $checkin): array

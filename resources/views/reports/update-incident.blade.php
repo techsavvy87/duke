@@ -22,9 +22,13 @@
     margin-left: 10px !important;
   }
   /* Also ensure the dropdown fits the parent */
-  .select2-container {
+  #update_form .select2-container {
     width: 100% !important;
     min-width: 0 !important;
+  }
+  /* The open dropdown is appended to <body>; don't let the global 100% width stretch it past the viewport */
+  body > .select2-container {
+    width: auto !important;
   }
 </style>
 @endsection
@@ -45,6 +49,13 @@
   <form action="{{ route('update-incident-report') }}" method="POST" enctype="multipart/form-data" id="update_form">
     @csrf
     <input type="hidden" name="incident_report_id" value="{{ $incidentReport->id }}"/>
+    @php
+      // after a failed update, show the submitted values instead of the saved ones
+      $formValue = fn ($field) => old($field, $incidentReport->$field);
+      // where the edit was opened from, used to redirect after a successful update
+      $editSource = old('source', request('source'));
+    @endphp
+    <input type="hidden" name="source" value="{{ in_array($editSource, ['incident_list', 'appointment'], true) ? $editSource : 'incident_list' }}"/>
     <div class="card bg-base-100 shadow">
       <div class="card-body">
         <div class="fieldset mt-2 grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -67,7 +78,7 @@
         </div>
         <div class="fieldset mt-4">
           <label class="fieldset-label" for="description">Description of incident</label>
-          <textarea class="textarea w-full" name="description" id="description" rows="3" placeholder="Describe the incident...">{{ $incidentReport->incident_description }}</textarea>
+          <textarea class="textarea w-full" name="description" id="description" rows="3" placeholder="Describe the incident...">{{ old('description', $incidentReport->incident_description) }}</textarea>
         </div>
         <div class="fieldset mt-1">
           @if($incidentReport->pictures)
@@ -97,29 +108,29 @@
           <div class="grid grid-cols-1 gap-6 xl:grid-cols-4 px-1">
             <div class="space-y-1">
               <label class="fieldset-label" for="injury_type">What type of injury? *</label>
-              <select class="select w-full" name="injury_type" id="injury_type" value="{{ $incidentReport->injury_type }}">
+              <select class="select w-full" name="injury_type" id="injury_type" value="{{ $formValue('injury_type') }}">
                 <option value="" hidden>Choose a injury type</option>
-                <option value="bite" {{ $incidentReport->injury_type === 'bite' ? 'selected' : '' }}>Bite</option>
-                <option value="laceration" {{ $incidentReport->injury_type === 'laceration' ? 'selected' : '' }}>Laceration</option>
-                <option value="tear" {{ $incidentReport->injury_type === 'tear' ? 'selected' : '' }}>Tear</option>
-                <option value="puncture" {{ $incidentReport->injury_type === 'puncture' ? 'selected' : '' }}>Puncture</option>
-                <option value="fracture" {{ $incidentReport->injury_type === 'fracture' ? 'selected' : '' }}>Fracture</option>
-                <option value="other" {{ $incidentReport->injury_type === 'other' ? 'selected' : '' }}>Other</option>
+                <option value="bite" {{ $formValue('injury_type') === 'bite' ? 'selected' : '' }}>Bite</option>
+                <option value="laceration" {{ $formValue('injury_type') === 'laceration' ? 'selected' : '' }}>Laceration</option>
+                <option value="tear" {{ $formValue('injury_type') === 'tear' ? 'selected' : '' }}>Tear</option>
+                <option value="puncture" {{ $formValue('injury_type') === 'puncture' ? 'selected' : '' }}>Puncture</option>
+                <option value="fracture" {{ $formValue('injury_type') === 'fracture' ? 'selected' : '' }}>Fracture</option>
+                <option value="other" {{ $formValue('injury_type') === 'other' ? 'selected' : '' }}>Other</option>
               </select>
             </div>
             <div class="space-y-1">
               <label class="fieldset-label" for="injury_location">Where is the injury? *</label>
-              <input type="text" class="input w-full" name="injury_location" id="injury_location" placeholder="E.g., Left front leg" value="{{ $incidentReport->injury_location }}"/>
+              <input type="text" class="input w-full" name="injury_location" id="injury_location" placeholder="E.g., Left front leg" value="{{ $formValue('injury_location') }}"/>
             </div>
             <div class="space-y-3">
               <label class="fieldset-label">Injury need treatment? *</label>
               <div class="flex gap-6">
                 <label class="label cursor-pointer">
-                  <input type="radio" name="needs_treatment" value="yes" class="radio radio-primary radio-sm" {{ $incidentReport->needs_treatment === 'yes' ? 'checked' : '' }}>
+                  <input type="radio" name="needs_treatment" value="yes" class="radio radio-primary radio-sm" {{ $formValue('needs_treatment') === 'yes' ? 'checked' : '' }}>
                   <span class="label-text ml-2">Yes</span>
                 </label>
                 <label class="label cursor-pointer">
-                  <input type="radio" name="needs_treatment" value="no" class="radio radio-primary radio-sm" {{ $incidentReport->needs_treatment === 'no' ? 'checked' : '' }}>
+                  <input type="radio" name="needs_treatment" value="no" class="radio radio-primary radio-sm" {{ $formValue('needs_treatment') === 'no' ? 'checked' : '' }}>
                   <span class="label-text ml-2">No</span>
                 </label>
               </div>
@@ -128,11 +139,11 @@
               <label class="fieldset-label">Is this an emergency? *</label>
               <div class="flex gap-6">
                 <label class="label cursor-pointer">
-                  <input type="radio" name="is_emergency" value="yes" class="radio radio-primary radio-sm" {{ $incidentReport->is_emergency === 'yes' ? 'checked' : '' }}>
+                  <input type="radio" name="is_emergency" value="yes" class="radio radio-primary radio-sm" {{ $formValue('is_emergency') === 'yes' ? 'checked' : '' }}>
                   <span class="label-text ml-2">Yes</span>
                 </label>
                 <label class="label cursor-pointer">
-                  <input type="radio" name="is_emergency" value="no" class="radio radio-primary radio-sm" {{ $incidentReport->is_emergency === 'no' ? 'checked' : '' }}>
+                  <input type="radio" name="is_emergency" value="no" class="radio radio-primary radio-sm" {{ $formValue('is_emergency') === 'no' ? 'checked' : '' }}>
                   <span class="label-text ml-2">No</span>
                 </label>
               </div>
@@ -147,18 +158,18 @@
                 <label class="fieldset-label">Contact owner? *</label>
                 <div class="flex gap-6 px-4">
                   <label class="label cursor-pointer">
-                    <input type="radio" name="contact_owner" value="yes" class="radio radio-primary radio-sm" {{ $incidentReport->contact_owner === 'yes' ? 'checked' : '' }}>
+                    <input type="radio" name="contact_owner" value="yes" class="radio radio-primary radio-sm" {{ $formValue('contact_owner') === 'yes' ? 'checked' : '' }}>
                     <span class="label-text ml-2">Yes</span>
                   </label>
                   <label class="label cursor-pointer">
-                    <input type="radio" name="contact_owner" value="no" class="radio radio-primary radio-sm" {{ $incidentReport->contact_owner === 'no' ? 'checked' : '' }}>
+                    <input type="radio" name="contact_owner" value="no" class="radio radio-primary radio-sm" {{ $formValue('contact_owner') === 'no' ? 'checked' : '' }}>
                     <span class="label-text ml-2">No (left message or do not contact)</span>
                   </label>
                 </div>
               </div>
               <div class="space-y-1 px-4">
                 <label class="fieldset-label" for="owner_conversation_notes">If yes, notes from conversation</label>
-                <textarea class="textarea w-full" name="owner_conversation_notes" id="owner_conversation_notes" rows="3" placeholder="Enter notes..." {{ $incidentReport->contact_owner === 'yes' ? '' : 'disabled' }}>{{ $incidentReport->owner_conversation_notes }}</textarea>
+                <textarea class="textarea w-full" name="owner_conversation_notes" id="owner_conversation_notes" rows="3" placeholder="Enter notes..." {{ $formValue('contact_owner') === 'yes' ? '' : 'disabled' }}>{{ $formValue('owner_conversation_notes') }}</textarea>
               </div>
             </div>
             <div class="space-y-4">
@@ -166,11 +177,11 @@
                 <label class="fieldset-label">Treatment *</label>
                 <div class="flex gap-6 px-4">
                   <label class="label cursor-pointer">
-                    <input type="radio" name="treatment_type" value="in_house" class="radio radio-primary radio-sm" {{ $incidentReport->treatment_type === 'in_house' ? 'checked' : '' }}>
+                    <input type="radio" name="treatment_type" value="in_house" class="radio radio-primary radio-sm" {{ $formValue('treatment_type') === 'in_house' ? 'checked' : '' }}>
                     <span class="label-text ml-2">In-house</span>
                   </label>
                   <label class="label cursor-pointer">
-                    <input type="radio" name="treatment_type" value="vet" class="radio radio-primary radio-sm" {{ $incidentReport->treatment_type === 'vet' ? 'checked' : '' }}>
+                    <input type="radio" name="treatment_type" value="vet" class="radio radio-primary radio-sm" {{ $formValue('treatment_type') === 'vet' ? 'checked' : '' }}>
                     <span class="label-text ml-2">Vet</span>
                   </label>
                 </div>
@@ -178,26 +189,26 @@
               <div class="grid grid-cols-1 gap-2 xl:grid-cols-2 px-4">
                 <div class="space-y-1">
                   <label class="fieldset-label" for="vet_name">Which vet</label>
-                  <input class="input w-full input-sm" name="vet_name" id="vet_name" placeholder="Enter vet name..." value="{{ $incidentReport->vet_name }}" {{ $incidentReport->treatment_type === 'vet' ? '' : 'disabled' }}/>
+                  <input class="input w-full input-sm" name="vet_name" id="vet_name" placeholder="Enter vet name..." value="{{ $formValue('vet_name') }}" {{ $formValue('treatment_type') === 'vet' ? '' : 'disabled' }}/>
                 </div>
                 <div class="space-y-1">
                   <label class="fieldset-label" for="vet_bill">Bill</label>
                   <label class="input w-full focus:outline-0 input-sm">
-                    <input class="grow focus:outline-0" placeholder="e.g. 100.00" id="vet_bill" name="vet_bill" type="text" oninput="this.value = this.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');" value="{{ $incidentReport->vet_bill }}" {{ $incidentReport->treatment_type === 'vet' ? '' : 'disabled' }}/>
+                    <input class="grow focus:outline-0" placeholder="e.g. 100.00" id="vet_bill" name="vet_bill" type="text" oninput="this.value = this.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');" value="{{ $formValue('vet_bill') }}" {{ $formValue('treatment_type') === 'vet' ? '' : 'disabled' }}/>
                     <span class="badge badge-ghost badge-sm">USD</span>
                   </label>
                 </div>
                 <div class="space-y-1">
                   <label class="fieldset-label" for="vet_payment">Payment</label>
-                  <input class="input w-full input-sm" name="vet_payment" id="vet_payment" placeholder="Enter vet payment..." value="{{ $incidentReport->vet_payment }}" {{ $incidentReport->treatment_type === 'vet' ? '' : 'disabled' }}/>
+                  <input class="input w-full input-sm" name="vet_payment" id="vet_payment" placeholder="Enter vet payment..." value="{{ $formValue('vet_payment') }}" {{ $formValue('treatment_type') === 'vet' ? '' : 'disabled' }}/>
                 </div>
                 <div class="space-y-1">
                   <label class="fieldset-label" for="vet_results">Vet visit resolution</label>
-                  <select class="select w-full select-sm" name="vet_results" id="vet_results" {{ $incidentReport->treatment_type === 'vet' ? '' : 'disabled' }}>
+                  <select class="select w-full select-sm" name="vet_results" id="vet_results" {{ $formValue('treatment_type') === 'vet' ? '' : 'disabled' }}>
                     <option value="" hidden>Choose a resolution</option>
-                    <option value="diagnosis" {{ $incidentReport->vet_results === 'diagnosis' ? 'selected' : '' }}>Diagnosis</option>
-                    <option value="prognosis" {{ $incidentReport->vet_results === 'prognosis' ? 'selected' : '' }}>Prognosis</option>
-                    <option value="treatment" {{ $incidentReport->vet_results === 'treatment' ? 'selected' : '' }}>Treatment</option>
+                    <option value="diagnosis" {{ $formValue('vet_results') === 'diagnosis' ? 'selected' : '' }}>Diagnosis</option>
+                    <option value="prognosis" {{ $formValue('vet_results') === 'prognosis' ? 'selected' : '' }}>Prognosis</option>
+                    <option value="treatment" {{ $formValue('vet_results') === 'treatment' ? 'selected' : '' }}>Treatment</option>
                   </select>
                 </div>
               </div>
@@ -206,7 +217,7 @@
         </div>
         <div class="fieldset mt-2 space-y-1">
           <label class="fieldset-label" for="conclusion">Conclusion *</label>
-          <textarea class="textarea w-full" name="conclusion" id="conclusion" rows="3" placeholder="How do we proceed after conversation with owner">{{ $incidentReport->conclusion }}</textarea>
+          <textarea class="textarea w-full" name="conclusion" id="conclusion" rows="3" placeholder="How do we proceed after conversation with owner">{{ $formValue('conclusion') }}</textarea>
         </div>
       </div>
     </div>
@@ -246,7 +257,7 @@
     $('#pets').select2({
       placeholder: "Choose pets",
       ajax: {
-        url: '{{ route("get-pets") }}',
+        url: '{{ route("get-incident-eligible-pets", ["serviceId" => $incidentReport->service_id]) }}',
         dataType: 'json',
         delay: 250,
         data: function (params) {

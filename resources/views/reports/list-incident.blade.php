@@ -153,7 +153,7 @@
   });
 
   function confirmDelete(report) {
-    const message = `You are about to delete the incident report ${report.id}. Would you like to proceed?`;
+    const message = `You are about to delete the incident report ${report.id}. It will also disappear from its appointment's detail page and report, and an appointment in Issue only because of this incident returns to its previous status. Would you like to proceed?`;
     $('#delete_modal_message').text(message);
     $('#delete_form input[name=incident_report_id]').val(report.id);
     delete_modal.showModal();

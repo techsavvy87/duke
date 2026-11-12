@@ -34,3 +34,5 @@
 </style>
 @endonce
 @endif
+
+@include('archives.partials.incident-history')

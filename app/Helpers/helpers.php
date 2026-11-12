@@ -258,7 +258,17 @@ if (!function_exists('checkoutPicturePdfSrc')) {
      */
     function checkoutPicturePdfSrc($picture): string
     {
-        $relativePath = 'checkouts/' . basename((string) $picture);
+        return publicPicturePdfSrc('checkouts', $picture);
+    }
+}
+
+if (!function_exists('publicPicturePdfSrc')) {
+    /**
+     * Base64 data URI for a picture on the public disk (e.g. checkouts/, reports/) so dompdf can embed it.
+     */
+    function publicPicturePdfSrc(string $folder, $picture): string
+    {
+        $relativePath = $folder . '/' . basename((string) $picture);
         $disk = \Illuminate\Support\Facades\Storage::disk('public');
 
         if ($picture === '' || $picture === null || !$disk->exists($relativePath)) {

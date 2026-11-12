@@ -476,6 +476,17 @@ class Appointment extends Model
             ->implode('; ');
     }
 
+    /**
+     * All incident reports (pending, open and resolved) linked to this appointment, newest first.
+     */
+    public function getIncidentReportsAttribute()
+    {
+        return IncidentReport::forAppointment($this->id)
+            ->with('resolvedBy.profile')
+            ->orderBy('created_at', 'desc')
+            ->get();
+    }
+
     public function pet()
     {
         return $this->belongsTo(PetProfile::class, 'pet_id', 'id');

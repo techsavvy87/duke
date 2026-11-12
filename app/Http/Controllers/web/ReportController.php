@@ -95,7 +95,23 @@ class ReportController extends Controller
             'treatment_type' => 'required|string',
             'conclusion' => 'required|string',
             'service_id' => 'required|exists:services,id',
+            // set when the report is created from the Incident Report modal on Appointment Detail
+            'appointment_id' => 'nullable|exists:appointments,id',
         ]);
+
+        // only pets with an in_progress appointment for this service can be selected
+        if (!empty($this->getIneligiblePetIds($request->pets, $this->getEligiblePetIds($request->service_id)))) {
+            return $this->incidentFailResponse($request, 'Only pets with an In Progress appointment for this service can be selected.');
+        }
+
+        // from Appointment Detail: the report is linked to that appointment, which moves to Issue on its Confirm
+        $sourceAppointment = null;
+        if ($request->filled('appointment_id')) {
+            $sourceAppointment = Appointment::find($request->appointment_id);
+            if ($sourceAppointment->status !== 'in_progress' || (int) $sourceAppointment->service_id !== (int) $request->service_id) {
+                return $this->incidentFailResponse($request, 'Incident reports can only be added to an In Progress appointment.');
+            }
+        }
 
         // save pictures
         $picturePaths = [];
@@ -109,18 +125,18 @@ class ReportController extends Controller
 
         $serviceId = $request->service_id;
 
-        // appointment ids for involved pets on the current date with the daycare service
-        $appointmentIds = $this->getAppointmentIds($request->pets, $serviceId);
-        if (count($appointmentIds) == 0) {
-            return redirect()->back()->with([
-                'status' => 'fail',
-                'message' => 'No valid appointments found for the selected pets with the specified service.'
-            ]);
+        if ($sourceAppointment) {
+            $appointmentIds = [$sourceAppointment->id];
+        } else {
+            // appointment ids for involved pets on the current date with the daycare service
+            $appointmentIds = $this->getAppointmentIds($request->pets, $serviceId);
+            if (count($appointmentIds) == 0) {
+                return $this->incidentFailResponse($request, 'No valid appointments found for the selected pets with the specified service.');
+            }
         }
-        // update the status of appointments
-        Appointment::whereIn('id', $appointmentIds)->update(['status' => 'issue']);
 
         $incidentReport = new IncidentReport;
+        $incidentReport->status = IncidentReport::STATUS_OPEN;
         $incidentReport->pet_ids = implode(',', $request->pets);
         $incidentReport->staff_ids = implode(',', $request->staffs);
         $incidentReport->appointment_ids = implode(',', $appointmentIds);
@@ -140,7 +156,27 @@ class ReportController extends Controller
         $incidentReport->conclusion = $request->conclusion;
         $incidentReport->service_id = $serviceId;
 
-        $incidentReport->save();
+        DB::transaction(function () use ($incidentReport, $sourceAppointment) {
+            $incidentReport->save();
+            // from the Create page the appointments move to Issue right away
+            if (!$sourceAppointment) {
+                $incidentReport->activate();
+            }
+        });
+
+        if ($sourceAppointment) {
+            $message = 'Incident report created. Click Confirm to move this appointment to Issue.';
+            if ($request->expectsJson()) {
+                // the page reloads after the modal save; show the message there
+                session()->flash('status', 'success');
+                session()->flash('message', $message);
+                return response()->json(['status' => 'success', 'message' => $message]);
+            }
+            return redirect()->route('appointment-dashboard', ['id' => $sourceAppointment->id])->with([
+                'status' => 'success',
+                'message' => $message
+            ]);
+        }
 
         return redirect()->route('list-incident-reports', ['serviceId' => $serviceId])->with([
             'status' => 'success',
@@ -148,16 +184,32 @@ class ReportController extends Controller
         ]);
     }
 
+    /**
+     * Error response for incident saves: JSON for the Appointment Detail modals, otherwise back to the form
+     * with the entered values.
+     */
+    private function incidentFailResponse(Request $request, string $message)
+    {
+        if ($request->expectsJson()) {
+            return response()->json(['status' => 'fail', 'message' => $message], 422);
+        }
+
+        return redirect()->back()->withInput()->with([
+            'status' => 'fail',
+            'message' => $message
+        ]);
+    }
+
     public function editIncidentReport($id)
     {
         $incidentReport = IncidentReport::find($id);
 
-        // prepare selected pets
-        $selectedPetIds = array_filter(array_map('trim', explode(',', $incidentReport->pet_ids ?? '')));
+        // prepare selected pets (re-select the submitted pets when returning from a failed update)
+        $selectedPetIds = old('pets', array_filter(array_map('trim', explode(',', $incidentReport->pet_ids ?? ''))));
         $selectedPets = $selectedPetIds ? PetProfile::whereIn('id', $selectedPetIds)->get() : collect();
 
         // prepare selected staffs
-        $selectedStaffIds = array_filter(array_map('trim', explode(',', $incidentReport->staff_ids ?? '')));
+        $selectedStaffIds = old('staffs', array_filter(array_map('trim', explode(',', $incidentReport->staff_ids ?? ''))));
         $selectedStaffs = $selectedStaffIds ? User::whereIn('id', $selectedStaffIds)->get() : collect();
 
         return view('reports.update-incident', compact('incidentReport', 'selectedPets', 'selectedStaffs'));
@@ -176,9 +228,18 @@ class ReportController extends Controller
             'contact_owner' => 'required|string',
             'treatment_type' => 'required|string',
             'conclusion' => 'required|string',
+            'source' => 'nullable|in:incident_list,appointment',
         ]);
 
         $incidentReport = IncidentReport::find($request->incident_report_id);
+
+        // only pets with an in_progress appointment for this service can be selected,
+        // except pets already on this report (their appointment status may have changed since)
+        $existingPetIds = array_map('intval', array_filter(array_map('trim', explode(',', $incidentReport->pet_ids ?? ''))));
+        $allowedPetIds = array_merge($this->getEligiblePetIds($incidentReport->service_id), $existingPetIds);
+        if (!empty($this->getIneligiblePetIds($request->pets, $allowedPetIds))) {
+            return $this->incidentFailResponse($request, 'Only pets with an In Progress appointment for this service can be selected.');
+        }
 
         // collect current pictures submitted
         $currentPictures = [];
@@ -211,18 +272,38 @@ class ReportController extends Controller
             }
         }
 
-        // update the status of previous appointments back to in_progress
-        Appointment::whereIn('id', explode(',', $incidentReport->appointment_ids))->update(['status' => 'completed']);
-        // appointment ids for involved pets on the current date with the daycare service
-        $appointmentIds = $this->getAppointmentIds($request->pets, $incidentReport->service_id);
-        if (count($appointmentIds) == 0) {
-            return redirect()->back()->with([
-                'status' => 'fail',
-                'message' => 'No valid appointments found for the selected pets with the specified service.'
-            ]);
+        DB::beginTransaction();
+
+        $oldAppointmentIds = $incidentReport->appointment_id_list;
+        $oldPreviousStatuses = $incidentReport->appointment_previous_statuses ?? [];
+
+        // only an open incident whose appointments are in Issue holds them; resolved incidents and ones still
+        // waiting for the appointment's Confirm keep their linked appointments as they are
+        $holdsAppointments = $incidentReport->isOpen() && !$incidentReport->isAwaitingConfirm();
+
+        if (!$holdsAppointments) {
+            $appointmentIds = $oldAppointmentIds;
+        } else {
+            // release previous appointments back to their pre-incident status
+            $this->releaseIncidentAppointments($incidentReport, 'completed');
+            // appointment ids for involved pets on the current date with the daycare service
+            $appointmentIds = $this->getAppointmentIds($request->pets, $incidentReport->service_id);
         }
-        // update the status of appointments
-        Appointment::whereIn('id', $appointmentIds)->update(['status' => 'issue']);
+        if (count($appointmentIds) == 0) {
+            DB::rollBack();
+            return $this->incidentFailResponse($request, 'No valid appointments found for the selected pets with the specified service.');
+        }
+        if ($holdsAppointments) {
+            // keep the original pre-incident status for appointments that were already on this incident
+            $previousStatuses = [];
+            foreach ($this->getAppointmentStatuses($appointmentIds) as $appointmentId => $currentStatus) {
+                $previousStatuses[$appointmentId] = $oldPreviousStatuses[$appointmentId]
+                    ?? (in_array((int) $appointmentId, $oldAppointmentIds, true) ? 'in_progress' : $currentStatus);
+            }
+            $incidentReport->appointment_previous_statuses = $previousStatuses;
+            // update the status of appointments
+            Appointment::whereIn('id', $appointmentIds)->update(['status' => 'issue']);
+        }
 
         $incidentReport->pet_ids = implode(',', $request->pets);
         $incidentReport->staff_ids = implode(',', $request->staffs);
@@ -243,10 +324,142 @@ class ReportController extends Controller
         $incidentReport->conclusion = $request->conclusion;
         $incidentReport->save();
 
-        return redirect()->route('list-incident-reports', ['serviceId' => $incidentReport->service_id])->with([
+        DB::commit();
+
+        // edit modal on Appointment Detail: the page reloads and shows the message
+        if ($request->expectsJson()) {
+            $message = 'Incident report updated successfully!';
+            session()->flash('status', 'success');
+            session()->flash('message', $message);
+            return response()->json(['status' => 'success', 'message' => $message]);
+        }
+
+        // return to where the edit was opened from: the service dashboard (Issue appointment) or the incident list
+        $redirect = $request->source === 'appointment'
+            ? redirect()->route('service-dashboard', ['id' => $incidentReport->service_id])
+            : redirect()->route('list-incident-reports', ['serviceId' => $incidentReport->service_id]);
+
+        return $redirect->with([
             'status' => 'success',
             'message' => 'Incident report updated successfully!'
         ]);
+    }
+
+    /**
+     * Pets eligible for a new incident: pets on an `in_progress` appointment for the given service.
+     * Uses the appointment's family_pet_ids accessor so multi-pet (family) appointments are covered.
+     */
+    private function getEligiblePetIds($serviceId): array
+    {
+        return Appointment::where('service_id', $serviceId)
+            ->where('status', 'in_progress')
+            ->get(['id', 'pet_id', 'metadata'])
+            ->flatMap(fn (Appointment $appointment) => array_merge(
+                $appointment->family_pet_ids,
+                $appointment->pet_id ? [(int) $appointment->pet_id] : []
+            ))
+            ->filter(fn ($id) => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Returns pet ids from the request that are not in the allowed list.
+     */
+    private function getIneligiblePetIds(array $requestedPetIds, array $allowedPetIds): array
+    {
+        return array_values(array_diff(array_map('intval', $requestedPetIds), $allowedPetIds));
+    }
+
+    public function getIncidentEligiblePets(Request $request, $serviceId)
+    {
+        $search = $request->get('q', '');
+
+        $pets = PetProfile::whereIn('id', $this->getEligiblePetIds($serviceId))
+            ->where('name', 'like', "%{$search}%")
+            ->orderBy('name')
+            ->get(['id', 'name']);
+
+        return response()->json($pets);
+    }
+
+    public function resolveIncidentReport(Request $request)
+    {
+        $request->validate([
+            'incident_report_id' => 'required|exists:incident_reports,id',
+        ]);
+
+        $incidentReport = IncidentReport::find($request->incident_report_id);
+
+        if (!$incidentReport->isOpen() || $incidentReport->isAwaitingConfirm()) {
+            return redirect()->back()->with([
+                'status' => 'fail',
+                'message' => $incidentReport->isResolved()
+                    ? 'This incident has already been resolved.'
+                    : 'This incident has not been confirmed yet.'
+            ]);
+        }
+
+        DB::transaction(function () use ($incidentReport) {
+            $incidentReport->status = IncidentReport::STATUS_RESOLVED;
+            $incidentReport->resolved_at = now();
+            $incidentReport->resolved_by = auth()->id();
+            $incidentReport->save();
+
+            // incidents created before status tracking default back to In Progress / On Property
+            $this->releaseIncidentAppointments($incidentReport, 'in_progress');
+        });
+
+        // back to the service dashboard, where the appointment now shows under On Property / In Progress
+        return redirect()->route('service-dashboard', ['id' => $incidentReport->service_id])->with([
+            'status' => 'success',
+            'message' => 'Incident resolved successfully!'
+        ]);
+    }
+
+    /**
+     * Current status of each appointment, keyed by appointment id.
+     */
+    private function getAppointmentStatuses(array $appointmentIds): array
+    {
+        return Appointment::whereIn('id', $appointmentIds)->pluck('status', 'id')->all();
+    }
+
+    /**
+     * Move this incident's appointments out of Issue, back to the status they had before the incident.
+     * Appointments still referenced by another open incident stay in Issue.
+     */
+    private function releaseIncidentAppointments(IncidentReport $incidentReport, string $fallbackStatus): void
+    {
+        $previousStatuses = $incidentReport->appointment_previous_statuses ?? [];
+
+        $appointments = Appointment::with('service')
+            ->whereIn('id', $incidentReport->appointment_id_list)
+            ->where('status', 'issue')
+            ->get();
+
+        foreach ($appointments as $appointment) {
+            $heldByOtherIncident = IncidentReport::open()
+                ->forAppointment($appointment->id)
+                ->where('id', '!=', $incidentReport->id)
+                ->exists();
+            if ($heldByOtherIncident) {
+                continue;
+            }
+
+            $restoreStatus = $previousStatuses[$appointment->id] ?? $fallbackStatus;
+            if ($restoreStatus === 'issue') {
+                $restoreStatus = $fallbackStatus;
+            }
+
+            $appointment->status = $restoreStatus;
+            $appointment->save();
+
+            if ($incidentReport->isResolved()) {
+                appointment_audit_log($appointment->id, "Incident #{$incidentReport->id} resolved. Appointment status changed to " . appointment_status_label($restoreStatus, $appointment->service) . ".");
+            }
+        }
     }
 
     private function getAppointmentIds($petIds, $serviceId)
@@ -265,16 +478,26 @@ class ReportController extends Controller
     {
         $request->validate([
             'incident_report_id' => 'required|exists:incident_reports,id',
+            // set when deleting from Appointment Detail, which is shown again afterwards
+            'appointment_id' => 'nullable|exists:appointments,id',
         ]);
 
         $incidentReport = IncidentReport::find($request->incident_report_id);
         $serviceId = $incidentReport->service_id;
 
-        // appointment ids for involved pets on the current date with the daycare service
-        $petIds = array_filter(array_map('trim', explode(',', $incidentReport->pet_ids ?? '')));
-        $appointmentIds = $incidentReport->appointment_ids ? array_filter(array_map('trim', explode(',', $incidentReport->appointment_ids))) : [];
-        // update the status of appointments
-        Appointment::whereIn('id', $appointmentIds)->update(['status' => 'completed']);
+        DB::transaction(function () use ($incidentReport) {
+            // release appointments still held in Issue by this incident (only appointments in Issue are touched);
+            // an appointment also held by another open incident stays in Issue
+            if ($incidentReport->isOpen()) {
+                $this->releaseIncidentAppointments($incidentReport, 'completed');
+            }
+
+            foreach ($incidentReport->appointment_id_list as $appointmentId) {
+                appointment_audit_log($appointmentId, "Incident #{$incidentReport->id} deleted.");
+            }
+
+            $incidentReport->delete();
+        });
 
         // optional: delete associated pictures from storage
         if (!empty($incidentReport->pictures)) {
@@ -287,9 +510,11 @@ class ReportController extends Controller
             }
         }
 
-        $incidentReport->delete();
+        $redirect = $request->filled('appointment_id')
+            ? redirect()->route('appointment-dashboard', ['id' => $request->appointment_id])
+            : redirect()->route('list-incident-reports', ['serviceId' => $serviceId]);
 
-        return redirect()->route('list-incident-reports', ['serviceId' => $serviceId])->with([
+        return $redirect->with([
             'status' => 'success',
             'message' => 'Incident report deleted successfully!'
         ]);

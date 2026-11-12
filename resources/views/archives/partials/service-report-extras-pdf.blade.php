@@ -32,3 +32,5 @@
   @endif
 </div>
 @endif
+
+@include('archives.partials.incident-history-pdf')

@@ -28,6 +28,7 @@ use App\Models\Kennel;
 use App\Models\KennelBlock;
 use App\Models\Room;
 use App\Models\PetVaccination;
+use App\Models\IncidentReport;
 use App\Services\InvoicePaymentService;
 use App\Services\BoardingCareScheduleService;
 use App\Services\LateFeeService;
@@ -36,6 +37,7 @@ use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use App\Mail\Invoice as InvoiceMail;
 use App\Mail\AdminCustomerMessage;
@@ -2240,6 +2242,34 @@ class AppointmentController extends Controller
                 'message' => 'Appointment not found.',
                 'status' => 'fail'
             ]);
+        }
+
+        // Incident reports saved from Appointment Detail: Confirm moves the appointment to Issue instead of completing it
+        $movedToIssue = DB::transaction(function () use ($appointment) {
+            $lockedAppointment = Appointment::whereKey($appointment->id)->lockForUpdate()->first();
+            if ($lockedAppointment->status !== 'in_progress') {
+                return false;
+            }
+
+            $unconfirmedIncidents = IncidentReport::awaitingConfirm()->forAppointment($appointment->id)->get();
+            if ($unconfirmedIncidents->isEmpty()) {
+                return false;
+            }
+
+            $unconfirmedIncidents->each->activate();
+            appointment_audit_log($appointment->id, "Incident report submitted. Appointment status changed to " . appointment_status_label('issue') . ".");
+
+            return true;
+        });
+        if ($movedToIssue) {
+            return redirect()->route('service-dashboard', ['id' => $appointment->service_id])->with([
+                'message' => 'Incident report confirmed. The appointment has been moved to Issue.',
+                'status' => 'success'
+            ]);
+        }
+        // Already moved to Issue (e.g. Confirm submitted twice): don't complete it
+        if ($appointment->fresh()->status === 'issue') {
+            return redirect()->route('service-dashboard', ['id' => $appointment->service_id]);
         }
 
         $isAlaCarte = isAlaCarteService($appointment->service);

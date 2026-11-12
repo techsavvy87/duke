@@ -13,7 +13,10 @@ return new class extends Migration
     {
         Schema::create('incident_reports', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('service_id')->constrained('services')->onDelete('cascade');
             $table->string('appointment_ids')->nullable();
+            // appointment status before it moved to Issue, keyed by appointment id
+            $table->json('appointment_previous_statuses')->nullable();
             $table->string('pet_ids');
             $table->string('staff_ids');
             $table->text('incident_description')->nullable();
@@ -30,6 +33,10 @@ return new class extends Migration
             $table->string('vet_payment')->nullable();
             $table->enum('vet_results', ['diagnosis', 'prognosis', 'treatment'])->nullable();
             $table->text('conclusion')->nullable();
+            // open = appointment(s) held in Issue; resolved = closed out, record kept for review
+            $table->string('status')->default('open');
+            $table->timestamp('resolved_at')->nullable();
+            $table->foreignId('resolved_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamps();
         });
     }

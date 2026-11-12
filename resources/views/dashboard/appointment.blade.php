@@ -406,6 +406,8 @@
         <div class="badge badge-soft badge-success badge-sm">{{ ucfirst($appointment->status) }}</div>
       @elseif($appointment->status === 'finished')
         <div class="badge badge-soft badge-success badge-sm">{{ ucfirst($appointment->status) }}</div>
+      @elseif($appointment->status === 'issue')
+        <div class="badge badge-soft badge-error badge-sm">Issue</div>
       @elseif($appointment->status === 'cancelled')
         <div class="badge badge-soft badge-error badge-sm">{{ ucfirst($appointment->status) }}</div>
       @else
@@ -769,6 +771,7 @@
         </form>
       </dialog>
       @endif
+      @include('dashboard.partials.incident-reports-section')
       @if ($appointment->status === 'checked_in')
         @if (isGroomingService($appointment->service) || isAlaCarteService($appointment->service))
         <div class="card card-border bg-base-100 mt-3">
@@ -3544,7 +3547,7 @@
 
   <div class="mt-6 flex justify-end gap-3">
     <div class="flex gap-3">
-      <a class="btn btn-sm btn-ghost" href="{{ url()->previous() }}">
+      <a class="btn btn-sm btn-ghost" href="{{ route('service-dashboard', ['id' => $appointment->service_id]) }}">
         <span class="iconify lucide--x size-4"></span>
         Cancel
       </a>
@@ -4422,7 +4425,9 @@
   }
 
   function proceedWithConfirm() {
-    $('#confirm_message').text('Are you sure to confirm this action?');
+    $('#confirm_message').text(typeof hasUnconfirmedIncidents !== 'undefined' && hasUnconfirmedIncidents
+      ? 'Move this appointment to Issue with its incident report?'
+      : 'Are you sure to confirm this action?');
     confirm_modal.showModal();
     // On confirm button click, submit the form
     $('#confirm_modal .btn-primary').off('click').on('click', function() {
@@ -4435,6 +4440,9 @@
         return confirmCheckedIn();
       } else if (appointmentStatus === 'in_progress') {
         return confirmInProgress();
+      } else if (appointmentStatus === 'issue') {
+        // Issue appointments are handled via Resolve; Confirm returns to the service dashboard
+        window.location.href = '{{ route("service-dashboard", ['id' => $appointment->service_id]) }}';
       } else if (appointmentStatus === 'completed') {
         return confirmCompleted();
       } else {
@@ -4593,6 +4601,11 @@
   }
 
   function confirmInProgress() {
+    // An open incident report: Confirm moves the appointment to Issue instead of completing it
+    if (typeof hasUnconfirmedIncidents !== 'undefined' && hasUnconfirmedIncidents) {
+      return confirmIncidentReports();
+    }
+
     const isAlaCarte = {{ isAlaCarteService($appointment->service) ? 'true' : 'false' }};
     const isBoarding = {{ isBoardingService($appointment->service) ? 'true' : 'false' }};
 
@@ -7603,6 +7616,8 @@
         <div class="badge badge-soft badge-success badge-sm">{{ ucfirst($appointment->status) }}</div>
       @elseif($appointment->status === 'finished')
         <div class="badge badge-soft badge-success badge-sm">{{ ucfirst($appointment->status) }}</div>
+      @elseif($appointment->status === 'issue')
+        <div class="badge badge-soft badge-error badge-sm">Issue</div>
       @elseif($appointment->status === 'cancelled')
         <div class="badge badge-soft badge-error badge-sm">{{ ucfirst($appointment->status) }}</div>
       @else
@@ -7787,6 +7802,7 @@
       @if ($appointment->status === 'completed' && hasServiceReportWorkflow($appointment->service))
       @include('dashboard.partials.service-report-section')
       @endif
+      @include('dashboard.partials.incident-reports-section')
       @if ($appointment->status === 'checked_in')
         @if (isGroomingService($appointment->service) || isAlaCarteService($appointment->service))
         <div class="card card-border bg-base-100 mt-3">
@@ -9832,7 +9848,7 @@
 
   <div class="mt-6 flex justify-end gap-3">
     <div class="flex gap-3">
-      <a class="btn btn-sm btn-ghost" href="{{ url()->previous() }}">
+      <a class="btn btn-sm btn-ghost" href="{{ route('service-dashboard', ['id' => $appointment->service_id]) }}">
         <span class="iconify lucide--x size-4"></span>
         Cancel
       </a>
@@ -10491,7 +10507,9 @@
   }
 
   function proceedWithConfirm() {
-    $('#confirm_message').text('Are you sure to confirm this action?');
+    $('#confirm_message').text(typeof hasUnconfirmedIncidents !== 'undefined' && hasUnconfirmedIncidents
+      ? 'Move this appointment to Issue with its incident report?'
+      : 'Are you sure to confirm this action?');
     confirm_modal.showModal();
     // On confirm button click, submit the form
     $('#confirm_modal .btn-primary').off('click').on('click', function() {
@@ -10504,6 +10522,9 @@
         return confirmCheckedIn();
       } else if (appointmentStatus === 'in_progress') {
         return confirmInProgress();
+      } else if (appointmentStatus === 'issue') {
+        // Issue appointments are handled via Resolve; Confirm returns to the service dashboard
+        window.location.href = '{{ route("service-dashboard", ['id' => $appointment->service_id]) }}';
       } else if (appointmentStatus === 'completed') {
         return confirmCompleted();
       } else {
@@ -10638,6 +10659,11 @@
   }
 
   function confirmInProgress() {
+    // An open incident report: Confirm moves the appointment to Issue instead of completing it
+    if (typeof hasUnconfirmedIncidents !== 'undefined' && hasUnconfirmedIncidents) {
+      return confirmIncidentReports();
+    }
+
     const isAlaCarte = {{ isAlaCarteService($appointment->service) ? 'true' : 'false' }};
     const isBoarding = {{ isBoardingService($appointment->service) ? 'true' : 'false' }};
 

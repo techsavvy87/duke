@@ -398,7 +398,7 @@
 
   <div class="mt-6 flex justify-end gap-3">
     <div class="flex gap-3">
-      <a class="btn btn-sm btn-ghost" href="{{ url()->previous() }}">
+      <a class="btn btn-sm btn-ghost" href="{{ route('service-dashboard', ['id' => $appointment->service_id]) }}">
         <span class="iconify lucide--x size-4"></span>
         Cancel
       </a>
