@@ -644,6 +644,12 @@ class PetController extends Controller
 
         $pet = PetProfile::find($request->pet_id);
 
+        $questionsAnswers = $request->questions_answers;
+        $serviceCategory = ServiceCategory::find($request->service_category_id);
+        if ($serviceCategory && stripos($serviceCategory->name, 'training') !== false) {
+            $questionsAnswers = Questionnaire::prepareTrainingAnswers($questionsAnswers);
+        }
+
         $questionnaireId = $request->questionnaire_id;
         if (isset($questionnaireId)) {
             $questionnaire = Questionnaire::find($questionnaireId);
@@ -653,7 +659,7 @@ class PetController extends Controller
             $questionnaire->user_id = $pet->owner->id;
             $questionnaire->service_category_id = $request->service_category_id;
         }
-        $questionnaire->questions_answers = $request->questions_answers;
+        $questionnaire->questions_answers = $questionsAnswers;
         $questionnaire->status = $request->status;
         $questionnaire->save();
 

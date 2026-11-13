@@ -40,6 +40,12 @@ class QuestionnaireController extends Controller
             'questions_answers' => 'required',
         ]);
 
+        $questionsAnswers = $request->questions_answers;
+        $serviceCategory = ServiceCategory::find($request->service_category_id);
+        if ($serviceCategory && stripos($serviceCategory->name, 'training') !== false) {
+            $questionsAnswers = Questionnaire::prepareTrainingAnswers($questionsAnswers);
+        }
+
         $questionnaireId = $request->questionnaire_id;
         if (isset($questionnaireId)) {
             $questionnaire = Questionnaire::find($questionnaireId);
@@ -49,7 +55,7 @@ class QuestionnaireController extends Controller
             $questionnaire->user_id = Auth::id();
             $questionnaire->service_category_id = $request->service_category_id;
         }
-        $questionnaire->questions_answers = $request->questions_answers;
+        $questionnaire->questions_answers = $questionsAnswers;
         $questionnaire->status = 'pending';
         $questionnaire->save();
 

@@ -880,31 +880,36 @@
                   </div>
                 </div>
                 <div class="xl:col-span-3">
-                  <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                  <div class="grid grid-cols-1 gap-4 xl:grid-cols-3">
+                    @php
+                      $trainingHistory = \App\Models\Questionnaire::trainingHistory($questionnaire ? $questions_answers : []);
+                      $hasReceivedTraining = $trainingHistory['has_received_training'];
+                      $previousTraining = $trainingHistory['previous_training'];
+                    @endphp
                     <div>
-                      <p class="font-medium mb-2">Has your dog received any training?</p>
+                      <p class="font-medium mb-2">Has your dog received training before</p>
                       <div class="mb-2 ms-4 flex items-center gap-4">
-                        @php
-                          $receivedTraining = $questionnaire ? ($questions_answers['received_training'] ?? null) : '';
-                          $receivedTrainingArray = $receivedTraining ? (is_array($receivedTraining) ? $receivedTraining : explode(',', $receivedTraining)) : [];
-                          $receivedTrainingArray = array_map('trim', $receivedTrainingArray);
-                        @endphp
                         <label class="flex items-center gap-2">
-                          <input type="checkbox" class="checkbox checkbox-xs" name="received_training[]" value="private" {{ in_array('private', $receivedTrainingArray) ? 'checked' : '' }} />
-                          <span class="text-sm">Private</span>
+                          <input type="radio" class="radio radio-xs" name="has_received_training" value="yes" {{ $hasReceivedTraining === 'yes' ? 'checked' : '' }} />
+                          <span class="text-sm">Yes</span>
                         </label>
                         <label class="flex items-center gap-2">
-                          <input type="checkbox" class="checkbox checkbox-xs" name="received_training[]" value="group classes" {{ in_array('group classes', $receivedTrainingArray) ? 'checked' : '' }} />
-                          <span class="text-sm">Group</span>
+                          <input type="radio" class="radio radio-xs" name="has_received_training" value="no" {{ $hasReceivedTraining === 'no' ? 'checked' : '' }} />
+                          <span class="text-sm">No</span>
                         </label>
-                        <label class="flex items-center gap-2">
-                          <input type="checkbox" class="checkbox checkbox-xs" name="received_training[]" value="board" {{ in_array('board', $receivedTrainingArray) ? 'checked' : '' }} />
-                          <span class="text-sm">Board</span>
-                        </label>
-                        <label class="flex items-center gap-2">
-                          <input type="checkbox" class="checkbox checkbox-xs" name="received_training[]" value="train" {{ in_array('train', $receivedTrainingArray) ? 'checked' : '' }} />
-                          <span class="text-sm">Train</span>
-                        </label>
+                      </div>
+                    </div>
+                    <div>
+                      <p class="font-medium mb-2">Previous training</p>
+                      <div class="mb-2 ms-4 flex flex-wrap items-center gap-4">
+                        @foreach (\App\Models\Questionnaire::PREVIOUS_TRAINING_OPTIONS as $optionValue => $optionLabel)
+                          <label class="flex items-center gap-2">
+                            <input type="checkbox" class="checkbox checkbox-xs" name="previous_training[]" value="{{ $optionValue }}"
+                              {{ in_array($optionValue, $previousTraining, true) ? 'checked' : '' }}
+                              {{ $hasReceivedTraining === 'no' ? 'disabled' : '' }} />
+                            <span class="text-sm">{{ $optionLabel }}</span>
+                          </label>
+                        @endforeach
                       </div>
                     </div>
                     <div>
@@ -925,9 +930,9 @@
               </div>
               <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 <div>
-                  <p class="font-medium mb-2">How old was your pet when you received them?*</p>
+                  <p class="font-medium mb-2">How old was your dog when you received them?*</p>
                   <div class="mb-2 ms-4">
-                    <input name="age_when_received" class="input w-full input-sm" value="{{ $questionnaire ? ($questions_answers['age_when_received'] ?? null) : '' }}" oninput="this.value = this.value.replace(/[^0-9]/g, '')" />
+                    <input type="text" name="age_when_received" class="input w-full input-sm" maxlength="100" placeholder="e.g. 8 weeks, 2 years, Unknown" value="{{ $questionnaire ? ($questions_answers['age_when_received'] ?? null) : '' }}" />
                   </div>
                 </div>
                 <div>
@@ -2157,6 +2162,13 @@
         });
     });
 
+    $(document).on('change', 'input[name="has_received_training"]', function() {
+      const isNo = $(this).val() === 'no';
+      const $previous = $('input[name="previous_training[]"]');
+      $previous.prop('disabled', isNo);
+      if (isNo) $previous.prop('checked', false);
+    });
+
     function saveQuestionnaire(ele, category, petId, questionnaireId) {
       let questionsAnswers = {};
       let status = 'pending';
@@ -2293,10 +2305,13 @@
           }
         }
 
-        const receivedTrainings = [];
-        $('input[name="received_training[]"]:checked').each(function() {
-          receivedTrainings.push($(this).val());
-        });
+        const hasReceivedTraining = $('input[name="has_received_training"]:checked').val() || null;
+        const previousTrainings = [];
+        if (hasReceivedTraining !== 'no') {
+          $('input[name="previous_training[]"]:checked').each(function() {
+            previousTrainings.push($(this).val());
+          });
+        }
 
         const eatingTimes = [];
         $('input[name="eating_times[]"]:checked').each(function() {
@@ -2312,7 +2327,8 @@
           primary_issue: $('input[name="primary_issue"]').val(),
           when_occurs: $('input[name="when_occurs"]').val(),
           consistent: $('input[name="consistent"]:checked').val(),
-          received_training: receivedTrainings,
+          has_received_training: hasReceivedTraining,
+          previous_training: previousTrainings,
           improvement_after_training: $('input[name="improvement_after_training"]:checked').val(),
           age_when_received: $('input[name="age_when_received"]').val(),
           how_acquired: $('input[name="how_acquired"]').val(),
@@ -2367,7 +2383,7 @@
           $(ele).find('span.loading').addClass('hidden');
           $(ele).find('span.iconify').removeClass('hidden');
           $(ele).prop('disabled', false);
-          $('#alert_message').text('Error saving questionnaire.');
+          $('#alert_message').text((xhr.responseJSON && xhr.responseJSON.message) || 'Error saving questionnaire.');
           alert_modal.showModal();
         }
       });
